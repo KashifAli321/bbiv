@@ -1,25 +1,34 @@
 import { useState, useEffect } from 'react';
-import { Shield, Copy, ExternalLink } from 'lucide-react';
+import { Shield, Copy, ExternalLink, User, Calendar, CreditCard, CheckCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useWallet } from '@/contexts/WalletContext';
-import { getStoredCredential, truncateAddress } from '@/lib/wallet';
+import { truncateAddress } from '@/lib/wallet';
 import { useToast } from '@/hooks/use-toast';
+import { getCredentialForCitizen, StoredCredential, verifyCredentialSignature } from '@/lib/credential-storage';
+import { OWNER_ISSUER_ADDRESS } from '@/lib/issuer-config';
+import { QRCodeButton } from '@/components/wallet/QRCodeDisplay';
 
 export function UserCredentialView() {
   const { address, network } = useWallet();
   const { toast } = useToast();
-  const [credentialHash, setCredentialHash] = useState<string | null>(null);
+  const [credential, setCredential] = useState<StoredCredential | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isValid, setIsValid] = useState(false);
 
-  const fetchCredential = async () => {
+  const fetchCredential = () => {
     if (!address) return;
     
     setIsLoading(true);
     try {
-      const hash = await getStoredCredential(address, network.id);
-      setCredentialHash(hash);
+      const cred = getCredentialForCitizen(address);
+      setCredential(cred);
+      
+      if (cred) {
+        const valid = verifyCredentialSignature(cred);
+        setIsValid(valid);
+      }
     } catch (error) {
       console.error('Error fetching credential:', error);
     } finally {
@@ -29,13 +38,36 @@ export function UserCredentialView() {
 
   useEffect(() => {
     fetchCredential();
-  }, [address, network]);
+  }, [address]);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast({
       title: 'Copied!',
-      description: 'Credential hash copied to clipboard',
+      description: 'Copied to clipboard',
+    });
+  };
+
+  const formatDate = (dateStr: string | number) => {
+    if (typeof dateStr === 'number') {
+      return new Date(dateStr).toLocaleDateString();
+    }
+    return dateStr ? new Date(dateStr).toLocaleDateString() : 'Not specified';
+  };
+
+  const isExpired = credential?.expiryDate ? new Date(credential.expiryDate) < new Date() : false;
+
+  const getCredentialQRData = () => {
+    if (!credential) return '';
+    return JSON.stringify({
+      type: 'identity-credential',
+      address: address,
+      fullName: credential.fullName,
+      nationalId: credential.nationalId,
+      credentialHash: credential.credentialHash,
+      issuer: credential.issuerAddress,
+      issuedAt: credential.issuedAt,
+      expiryDate: credential.expiryDate,
     });
   };
 
@@ -59,7 +91,7 @@ export function UserCredentialView() {
           </div>
           <div>
             <CardTitle>My Credential</CardTitle>
-            <CardDescription>View your identity credential on the blockchain</CardDescription>
+            <CardDescription>View your verified identity credential</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -68,7 +100,7 @@ export function UserCredentialView() {
           <div className="p-4 rounded-lg bg-secondary">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm text-muted-foreground">Wallet Address</span>
-              <Badge variant="outline">{network.name}</Badge>
+              <Badge variant="outline">Connected</Badge>
             </div>
             <div className="flex items-center gap-2">
               <span className="font-mono text-sm flex-1 truncate">{address}</span>
@@ -86,37 +118,98 @@ export function UserCredentialView() {
             <div className="flex items-center justify-center py-8">
               <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             </div>
-          ) : credentialHash ? (
-            <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/30">
-              <div className="flex items-center gap-2 mb-3">
-                <Shield className="w-5 h-5 text-green-400" />
-                <span className="font-medium text-green-400">Credential Found</span>
+          ) : credential ? (
+            <div className={`p-4 rounded-lg border ${
+              isExpired 
+                ? 'bg-yellow-500/10 border-yellow-500/30' 
+                : 'bg-green-500/10 border-green-500/30'
+            }`}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className={`w-5 h-5 ${isExpired ? 'text-yellow-500' : 'text-green-400'}`} />
+                  <span className={`font-medium ${isExpired ? 'text-yellow-500' : 'text-green-400'}`}>
+                    {isExpired ? 'Credential Expired' : 'Credential Valid'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isValid && <Badge variant="default" className="bg-green-500">Verified</Badge>}
+                  <QRCodeButton 
+                    value={getCredentialQRData()} 
+                    title="My Credential QR" 
+                    buttonText="QR"
+                  />
+                </div>
               </div>
               
-              <div className="space-y-2">
-                <span className="text-xs text-muted-foreground">Credential Hash</span>
-                <div className="flex items-center gap-2 p-3 rounded bg-background/50">
-                  <span className="font-mono text-xs break-all flex-1 text-primary">
-                    {credentialHash}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => copyToClipboard(credentialHash)}
-                  >
-                    <Copy className="w-4 h-4" />
-                  </Button>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-background/50">
+                  <User className="w-5 h-5 text-primary" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Full Name</p>
+                    <p className="font-medium">{credential.fullName}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-background/50">
+                  <CreditCard className="w-5 h-5 text-primary" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">National ID</p>
+                    <p className="font-medium">{credential.nationalId}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-background/50">
+                  <Calendar className="w-5 h-5 text-primary" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Date of Birth</p>
+                    <p className="font-medium">{formatDate(credential.dateOfBirth)}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-background/50">
+                  <Calendar className="w-5 h-5 text-primary" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Expiry Date</p>
+                    <p className={`font-medium ${isExpired ? 'text-destructive' : ''}`}>
+                      {formatDate(credential.expiryDate)}
+                    </p>
+                  </div>
                 </div>
               </div>
 
-              <Button
-                variant="outline"
-                className="w-full mt-4"
-                onClick={() => window.open(`${network.blockExplorer}/address/${address}`, '_blank')}
-              >
-                <ExternalLink className="w-4 h-4 mr-2" />
-                View on Block Explorer
-              </Button>
+              <div className="pt-3 border-t border-border space-y-3">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Issued By</p>
+                  <p className="font-mono text-xs break-all">
+                    {credential.issuerAddress}
+                    {credential.issuerAddress.toLowerCase() === OWNER_ISSUER_ADDRESS.toLowerCase() && (
+                      <span className="ml-2 text-primary">(Official Issuer)</span>
+                    )}
+                  </p>
+                </div>
+                
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Issued On</p>
+                  <p className="text-sm">{formatDate(credential.issuedAt)}</p>
+                </div>
+
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Credential Hash</p>
+                  <div className="flex items-center gap-2 p-2 rounded bg-background/50">
+                    <span className="font-mono text-xs break-all flex-1 text-primary">
+                      {credential.credentialHash}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0"
+                      onClick={() => copyToClipboard(credential.credentialHash)}
+                    >
+                      <Copy className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </div>
           ) : (
             <div className="p-4 rounded-lg bg-secondary border border-border text-center">
