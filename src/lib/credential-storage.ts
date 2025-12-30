@@ -1,8 +1,8 @@
 // Local credential storage for signed credentials
-// Owner uses signature-based credentials, others use smart contract
+// Includes face data for duplicate detection
 
 import { ethers } from 'ethers';
-import { OWNER_ISSUER_ADDRESS, isOwnerIssuer } from './issuer-config';
+import { OWNER_ISSUER_ADDRESS } from './issuer-config';
 
 export interface StoredCredential {
   citizenAddress: string;
@@ -14,7 +14,8 @@ export interface StoredCredential {
   dateOfBirth: string;
   nationalId: string;
   expiryDate: string;
-  faceDescriptor?: number[];
+  faceDescriptor?: number[]; // Face embedding for matching
+  faceImage?: string; // Base64 face image (thumbnail)
 }
 
 const CREDENTIALS_KEY = 'issued_credentials';
@@ -46,6 +47,58 @@ export function getCredentialForCitizen(citizenAddress: string): StoredCredentia
   ) || null;
 }
 
+// Calculate Euclidean distance between two face descriptors
+function euclideanDistance(desc1: number[], desc2: number[]): number {
+  if (desc1.length !== desc2.length) return Infinity;
+  
+  let sum = 0;
+  for (let i = 0; i < desc1.length; i++) {
+    sum += Math.pow(desc1[i] - desc2[i], 2);
+  }
+  return Math.sqrt(sum);
+}
+
+// Check if a face matches any existing credential
+// Returns the matching credential if found, null otherwise
+export function findMatchingFace(
+  faceDescriptor: number[], 
+  threshold: number = 0.6
+): StoredCredential | null {
+  const credentials = getStoredCredentials();
+  
+  for (const credential of credentials) {
+    if (credential.faceDescriptor && credential.faceDescriptor.length > 0) {
+      const distance = euclideanDistance(faceDescriptor, credential.faceDescriptor);
+      // Lower distance = more similar faces
+      // Typical threshold for face-api.js is 0.6
+      if (distance < threshold) {
+        return credential;
+      }
+    }
+  }
+  
+  return null;
+}
+
+// Check if a face already exists in the system
+export function checkDuplicateFace(faceDescriptor: number[]): {
+  isDuplicate: boolean;
+  existingCredential?: StoredCredential;
+  message?: string;
+} {
+  const matching = findMatchingFace(faceDescriptor);
+  
+  if (matching) {
+    return {
+      isDuplicate: true,
+      existingCredential: matching,
+      message: `This person already has a credential issued to wallet ${matching.citizenAddress.slice(0, 10)}...`
+    };
+  }
+  
+  return { isDuplicate: false };
+}
+
 // Sign and issue credential (for owner issuer)
 export async function signAndIssueCredential(
   privateKey: string,
@@ -56,15 +109,39 @@ export async function signAndIssueCredential(
     nationalId: string;
     expiryDate: string;
     faceDescriptor?: number[];
+    faceImage?: string;
   }
 ): Promise<{ success: boolean; credential?: StoredCredential; error?: string }> {
   try {
     const wallet = new ethers.Wallet(privateKey);
     
+    // Check for duplicate face BEFORE issuing
+    if (credentialData.faceDescriptor && credentialData.faceDescriptor.length > 0) {
+      const duplicateCheck = checkDuplicateFace(credentialData.faceDescriptor);
+      if (duplicateCheck.isDuplicate) {
+        return { 
+          success: false, 
+          error: `Duplicate detected: ${duplicateCheck.message}. This person cannot be issued another credential.`
+        };
+      }
+    }
+    
+    // Check if this wallet already has a credential
+    const existing = getCredentialForCitizen(citizenAddress);
+    if (existing) {
+      return {
+        success: false,
+        error: 'This wallet address already has a credential issued.'
+      };
+    }
+    
     // Create credential hash
     const dataToHash = JSON.stringify({
       citizenAddress,
-      ...credentialData,
+      fullName: credentialData.fullName,
+      dateOfBirth: credentialData.dateOfBirth,
+      nationalId: credentialData.nationalId,
+      expiryDate: credentialData.expiryDate,
       issuer: wallet.address,
       issuedAt: Date.now()
     });
@@ -83,7 +160,8 @@ export async function signAndIssueCredential(
       dateOfBirth: credentialData.dateOfBirth,
       nationalId: credentialData.nationalId,
       expiryDate: credentialData.expiryDate,
-      faceDescriptor: credentialData.faceDescriptor
+      faceDescriptor: credentialData.faceDescriptor,
+      faceImage: credentialData.faceImage
     };
     
     saveCredential(credential);
@@ -125,9 +203,11 @@ export function verifyCredentialForCitizen(citizenAddress: string): {
   }
   
   // Check expiry
-  const expiryDate = new Date(credential.expiryDate);
-  if (expiryDate < new Date()) {
-    return { isValid: false, credential, error: 'Credential has expired' };
+  if (credential.expiryDate) {
+    const expiryDate = new Date(credential.expiryDate);
+    if (expiryDate < new Date()) {
+      return { isValid: false, credential, error: 'Credential has expired' };
+    }
   }
   
   // Verify signature
@@ -137,4 +217,9 @@ export function verifyCredentialForCitizen(citizenAddress: string): {
   }
   
   return { isValid: true, credential };
+}
+
+// Get total issued credentials count
+export function getTotalCredentialsCount(): number {
+  return getStoredCredentials().length;
 }
