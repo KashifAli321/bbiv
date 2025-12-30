@@ -63,21 +63,6 @@ const roles = [
 export default function Index() {
   return (
     <div className="container mx-auto px-4">
-      {/* Welcome Message */}
-      <section className="text-center py-8">
-        <Card className="border-primary/30 bg-primary/5 animate-fade-in hover-scale">
-          <CardContent className="pt-6 flex flex-col items-center">
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center mb-4 animate-scale-in shadow-[0_0_20px_hsl(var(--primary)/0.5)] animate-[pulse_2s_cubic-bezier(0.4,0,0.6,1)_infinite]">
-              <Shield className="w-10 h-10 text-primary-foreground" />
-            </div>
-            <h2 className="text-2xl font-bold text-primary mb-2">Welcome to BlockID</h2>
-            <p className="text-muted-foreground">
-              <span className="font-semibold">Complete Name:</span> Blockchain Based Identity Verification
-            </p>
-          </CardContent>
-        </Card>
-      </section>
-
       {/* Hero Section */}
       <section className="text-center py-12 md:py-20">
         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/30 mb-6">
