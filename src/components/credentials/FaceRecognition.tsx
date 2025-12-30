@@ -173,15 +173,15 @@ export function FaceRecognition({
           const rightEAR = calculateEAR(rightEye);
           const avgEAR = (leftEAR + rightEAR) / 2;
 
-          // Detect blink with more lenient thresholds
+          // Detect blink with very lenient thresholds
           // Normal open eye EAR is ~0.25-0.35, closed is ~0.1-0.2
           if (livenessStep === 'blink') {
-            // Detect transition from open to closed (blink)
-            // More lenient: open > 0.18, closed < 0.22
-            if (lastEyeAspectRatio > 0.18 && avgEAR < 0.22) {
+            // Very lenient blink detection - any significant eye closure
+            // Open eye > 0.15, closed < 0.25 (wider range for easier detection)
+            if (lastEyeAspectRatio > 0.15 && avgEAR < 0.25) {
               blinkCounter++;
               setBlinkCount(blinkCounter);
-              if (blinkCounter >= 2) {
+              if (blinkCounter >= 1) { // Only need 1 blink now
                 setLivenessStep('smile');
                 toast.success('Blink detected! Now please smile.');
               }
@@ -189,11 +189,11 @@ export function FaceRecognition({
             lastEyeAspectRatio = avgEAR;
           }
 
-          // Check for smile with more lenient threshold
+          // Check for smile with very lenient threshold
           if (livenessStep === 'smile') {
             const expressions = detection.expressions;
-            // Reduced threshold from 0.7 to 0.4 for better detection
-            if (expressions.happy > 0.4) {
+            // Very low threshold of 0.2 for easy smile detection
+            if (expressions.happy > 0.2) {
               setSmileDetected(true);
               setLivenessStep('done');
               toast.success('Smile detected! You can now capture.');
@@ -313,7 +313,7 @@ export function FaceRecognition({
   const getLivenessInstructions = () => {
     switch (livenessStep) {
       case 'blink':
-        return `Please blink your eyes twice (${blinkCount}/2)`;
+        return 'Please blink your eyes';
       case 'smile':
         return 'Great! Now please smile';
       case 'done':
@@ -446,8 +446,8 @@ export function FaceRecognition({
             {/* Liveness indicator */}
             {isCameraActive && requireLiveness && livenessStep !== 'none' && (
               <div className="absolute bottom-4 left-4 right-4 flex justify-center gap-2">
-                <div className={`px-3 py-1 rounded-full text-xs ${blinkCount >= 2 ? 'bg-green-500/20 text-green-400' : 'bg-secondary text-muted-foreground'}`}>
-                  Blink {blinkCount >= 2 ? '✓' : `${blinkCount}/2`}
+                <div className={`px-3 py-1 rounded-full text-xs ${blinkCount >= 1 ? 'bg-green-500/20 text-green-400' : 'bg-secondary text-muted-foreground'}`}>
+                  Blink {blinkCount >= 1 ? '✓' : '○'}
                 </div>
                 <div className={`px-3 py-1 rounded-full text-xs ${smileDetected ? 'bg-green-500/20 text-green-400' : 'bg-secondary text-muted-foreground'}`}>
                   Smile {smileDetected ? '✓' : '○'}
