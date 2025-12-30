@@ -1,23 +1,26 @@
 import { useState } from 'react';
-import { FileCheck, Shield, AlertTriangle } from 'lucide-react';
+import { FileCheck, Shield, AlertTriangle, CheckCircle2, Rocket } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useWallet } from '@/contexts/WalletContext';
-import { createCredentialHash, issueCredential, CredentialData } from '@/lib/wallet';
-import { NetworkSelector } from '@/components/wallet/NetworkSelector';
 import { FaceRecognition } from './FaceRecognition';
 import { addTransaction } from '@/components/wallet/TransactionHistory';
+import { isAuthorizedIssuer, getIssuerStatus, OWNER_ISSUER_ADDRESS } from '@/lib/issuer-config';
+import { signAndIssueCredential } from '@/lib/credential-storage';
+import { Link } from 'react-router-dom';
 
 export function CredentialIssuer() {
   const { privateKey, address, network } = useWallet();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const [txHash, setTxHash] = useState<string | null>(null);
+  const [issuedSuccessfully, setIssuedSuccessfully] = useState(false);
   const [faceVerified, setFaceVerified] = useState(false);
-  const [capturedFaceData, setCapturedFaceData] = useState<string | null>(null);
+  const [capturedFaceDescriptor, setCapturedFaceDescriptor] = useState<number[] | null>(null);
   const [showFaceCapture, setShowFaceCapture] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -25,24 +28,40 @@ export function CredentialIssuer() {
     fullName: '',
     dateOfBirth: '',
     nationalId: '',
-    issuedDate: new Date().toISOString().split('T')[0],
     expiryDate: '',
   });
+
+  const issuerStatus = address ? getIssuerStatus(address) : { authorized: false, message: 'Connect wallet' };
+  const isOwner = address?.toLowerCase() === OWNER_ISSUER_ADDRESS.toLowerCase();
 
   const handleFaceVerified = (verified: boolean, faceData?: string) => {
     setFaceVerified(verified);
     if (faceData) {
-      setCapturedFaceData(faceData);
+      try {
+        const descriptor = JSON.parse(faceData);
+        setCapturedFaceDescriptor(descriptor);
+      } catch {
+        // Face data might not be JSON
+      }
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!privateKey) {
+    if (!privateKey || !address) {
       toast({
         title: 'Wallet Required',
         description: 'Please connect your wallet first',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!isAuthorizedIssuer(address)) {
+      toast({
+        title: 'Not Authorized',
+        description: 'You need to deploy your own contract to become an issuer',
         variant: 'destructive',
       });
       return;
@@ -68,34 +87,29 @@ export function CredentialIssuer() {
     }
 
     setIsLoading(true);
-    setTxHash(null);
+    setIssuedSuccessfully(false);
 
     try {
-      const credentialData: CredentialData = {
-        fullName: formData.fullName,
-        dateOfBirth: formData.dateOfBirth,
-        nationalId: formData.nationalId,
-        issuedDate: formData.issuedDate,
-        expiryDate: formData.expiryDate,
-      };
-
-      const hash = createCredentialHash(credentialData);
-      
-      const result = await issueCredential(
+      const result = await signAndIssueCredential(
         privateKey,
         formData.citizenAddress,
-        hash,
-        network.id
+        {
+          fullName: formData.fullName,
+          dateOfBirth: formData.dateOfBirth,
+          nationalId: formData.nationalId,
+          expiryDate: formData.expiryDate,
+          faceDescriptor: capturedFaceDescriptor || undefined,
+        }
       );
 
-      if (result.success && result.txHash) {
-        setTxHash(result.txHash);
+      if (result.success && result.credential) {
+        setIssuedSuccessfully(true);
         
         // Add to transaction history
         addTransaction({
           type: 'issue',
-          txHash: result.txHash,
-          from: address || '',
+          txHash: result.credential.credentialHash.slice(0, 66),
+          from: address,
           to: formData.citizenAddress,
           status: 'confirmed',
           network: network.id,
@@ -104,11 +118,20 @@ export function CredentialIssuer() {
 
         toast({
           title: 'Credential Issued!',
-          description: 'The credential has been recorded on the blockchain',
+          description: 'The credential has been signed and stored securely',
+        });
+
+        // Reset form
+        setFormData({
+          citizenAddress: '',
+          fullName: '',
+          dateOfBirth: '',
+          nationalId: '',
+          expiryDate: '',
         });
       } else {
         toast({
-          title: 'Transaction Failed',
+          title: 'Issuance Failed',
           description: result.error || 'Failed to issue credential',
           variant: 'destructive',
         });
@@ -126,6 +149,48 @@ export function CredentialIssuer() {
 
   return (
     <div className="space-y-6">
+      {/* Issuer Status */}
+      <Card className="border-border bg-card">
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                issuerStatus.authorized ? 'bg-green-500/20' : 'bg-yellow-500/20'
+              }`}>
+                {issuerStatus.authorized ? (
+                  <CheckCircle2 className="w-5 h-5 text-green-500" />
+                ) : (
+                  <AlertTriangle className="w-5 h-5 text-yellow-500" />
+                )}
+              </div>
+              <div>
+                <p className="font-medium">Issuer Status</p>
+                <p className="text-sm text-muted-foreground">{issuerStatus.message}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {isOwner && (
+                <Badge variant="default" className="bg-primary">Owner</Badge>
+              )}
+              <Badge variant={issuerStatus.authorized ? 'default' : 'secondary'}>
+                {issuerStatus.authorized ? 'Authorized' : 'Not Authorized'}
+              </Badge>
+            </div>
+          </div>
+          
+          {!issuerStatus.authorized && address && (
+            <div className="mt-4">
+              <Link to="/deploy">
+                <Button variant="outline" className="gap-2">
+                  <Rocket className="w-4 h-4" />
+                  Deploy Contract to Become Issuer
+                </Button>
+              </Link>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Face Verification Section */}
       {showFaceCapture && !faceVerified && (
         <FaceRecognition 
@@ -143,14 +208,14 @@ export function CredentialIssuer() {
             </div>
             <div>
               <CardTitle>Issue Credential</CardTitle>
-              <CardDescription>Issue a verifiable identity credential on the blockchain</CardDescription>
+              <CardDescription>Issue a verifiable identity credential with digital signature</CardDescription>
             </div>
           </div>
         </CardHeader>
         <CardContent>
           {!privateKey ? (
             <div className="text-center py-8">
-              <AlertTriangle className="w-12 h-12 mx-auto text-warning mb-4" />
+              <AlertTriangle className="w-12 h-12 mx-auto text-yellow-500 mb-4" />
               <p className="text-muted-foreground mb-4">
                 You need to connect your wallet to issue credentials
               </p>
@@ -158,13 +223,25 @@ export function CredentialIssuer() {
                 Connect Wallet
               </Button>
             </div>
+          ) : !issuerStatus.authorized ? (
+            <Alert>
+              <Rocket className="h-4 w-4" />
+              <AlertTitle>Deployment Required</AlertTitle>
+              <AlertDescription>
+                To issue credentials, you need to deploy your own smart contract. 
+                This makes you the authorized issuer for your instance.
+                <div className="mt-3">
+                  <Link to="/deploy">
+                    <Button size="sm" className="gap-2">
+                      <Rocket className="w-4 h-4" />
+                      Deploy Contract
+                    </Button>
+                  </Link>
+                </div>
+              </AlertDescription>
+            </Alert>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="flex items-center justify-between mb-4">
-                <Label>Network</Label>
-                <NetworkSelector />
-              </div>
-
               {/* Face Verification Status */}
               <div className="p-4 rounded-lg border border-border bg-secondary/30">
                 <div className="flex items-center justify-between">
@@ -227,7 +304,7 @@ export function CredentialIssuer() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="dateOfBirth">Date of Birth</Label>
                   <Input
@@ -235,17 +312,6 @@ export function CredentialIssuer() {
                     type="date"
                     value={formData.dateOfBirth}
                     onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
-                    className="bg-secondary"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="issuedDate">Issued Date</Label>
-                  <Input
-                    id="issuedDate"
-                    type="date"
-                    value={formData.issuedDate}
-                    onChange={(e) => setFormData({ ...formData, issuedDate: e.target.value })}
                     className="bg-secondary"
                   />
                 </div>
@@ -280,18 +346,15 @@ export function CredentialIssuer() {
                 )}
               </Button>
 
-              {txHash && (
-                <div className="mt-4 p-4 rounded-lg bg-green-500/10 border border-green-500/30">
-                  <p className="text-sm text-green-400 mb-2">✓ Transaction Successful!</p>
-                  <a
-                    href={`${network.blockExplorer}/tx/${txHash}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary underline text-sm font-mono break-all"
-                  >
-                    View on {network.name} Explorer
-                  </a>
-                </div>
+              {issuedSuccessfully && (
+                <Alert className="border-green-500/30 bg-green-500/10">
+                  <CheckCircle2 className="h-4 w-4 text-green-500" />
+                  <AlertTitle className="text-green-500">Credential Issued Successfully!</AlertTitle>
+                  <AlertDescription>
+                    The credential has been signed with your private key and stored securely.
+                    The user can now view their credential on the User page.
+                  </AlertDescription>
+                </Alert>
               )}
             </form>
           )}

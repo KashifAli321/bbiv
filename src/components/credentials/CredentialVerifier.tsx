@@ -1,38 +1,30 @@
 import { useState } from 'react';
-import { Search, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
+import { Search, CheckCircle, XCircle, AlertTriangle, User, Calendar, CreditCard } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useWallet } from '@/contexts/WalletContext';
-import { verifyCredential, getStoredCredential, createCredentialHash, CredentialData } from '@/lib/wallet';
-import { NetworkSelector } from '@/components/wallet/NetworkSelector';
 import { QRCodeButton } from '@/components/wallet/QRCodeDisplay';
 import { addTransaction } from '@/components/wallet/TransactionHistory';
+import { verifyCredentialForCitizen, StoredCredential } from '@/lib/credential-storage';
+import { OWNER_ISSUER_ADDRESS } from '@/lib/issuer-config';
 
-type VerificationResult = 'pending' | 'valid' | 'invalid' | 'error';
+type VerificationResult = 'pending' | 'valid' | 'invalid' | 'expired' | 'error';
 
 export function CredentialVerifier() {
   const { network, address } = useWallet();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [verificationResult, setVerificationResult] = useState<VerificationResult>('pending');
-  const [storedHash, setStoredHash] = useState<string | null>(null);
-  
-  const [formData, setFormData] = useState({
-    citizenAddress: '',
-    fullName: '',
-    dateOfBirth: '',
-    nationalId: '',
-    issuedDate: '',
-    expiryDate: '',
-  });
+  const [credential, setCredential] = useState<StoredCredential | null>(null);
+  const [citizenAddress, setCitizenAddress] = useState('');
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.citizenAddress) {
+    if (!citizenAddress) {
       toast({
         title: 'Address Required',
         description: 'Please enter the citizen wallet address',
@@ -43,71 +35,49 @@ export function CredentialVerifier() {
 
     setIsLoading(true);
     setVerificationResult('pending');
-    setStoredHash(null);
+    setCredential(null);
 
     try {
-      // First, get the stored credential hash
-      const hash = await getStoredCredential(formData.citizenAddress, network.id);
+      // Small delay to show loading state
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      const result = verifyCredentialForCitizen(citizenAddress);
       
-      if (!hash) {
+      if (result.isValid && result.credential) {
+        setVerificationResult('valid');
+        setCredential(result.credential);
+        
+        // Add to transaction history
+        if (address) {
+          addTransaction({
+            type: 'verify',
+            txHash: `verify-${Date.now()}`,
+            from: address,
+            to: citizenAddress,
+            status: 'confirmed',
+            network: network.id,
+            description: `Verified credential for ${result.credential.fullName}`,
+          });
+        }
+
+        toast({
+          title: 'Credential Verified!',
+          description: 'The credential is valid and properly signed',
+        });
+      } else if (result.credential && result.error?.includes('expired')) {
+        setVerificationResult('expired');
+        setCredential(result.credential);
+        toast({
+          title: 'Credential Expired',
+          description: 'This credential has passed its expiry date',
+          variant: 'destructive',
+        });
+      } else {
         setVerificationResult('invalid');
         toast({
           title: 'No Credential Found',
-          description: 'No credential exists for this address',
+          description: result.error || 'No valid credential exists for this address',
           variant: 'destructive',
-        });
-        return;
-      }
-
-      setStoredHash(hash);
-
-      // If user provided credential data, verify the hash matches
-      if (formData.fullName && formData.nationalId) {
-        const credentialData: CredentialData = {
-          fullName: formData.fullName,
-          dateOfBirth: formData.dateOfBirth,
-          nationalId: formData.nationalId,
-          issuedDate: formData.issuedDate,
-          expiryDate: formData.expiryDate,
-        };
-
-        const computedHash = createCredentialHash(credentialData);
-        const result = await verifyCredential(formData.citizenAddress, computedHash, network.id);
-
-        if (result.isValid) {
-          setVerificationResult('valid');
-          
-          // Add to transaction history
-          if (address) {
-            addTransaction({
-              type: 'verify',
-              txHash: `verify-${Date.now()}`,
-              from: address,
-              to: formData.citizenAddress,
-              status: 'confirmed',
-              network: network.id,
-              description: `Verified credential for ${formData.fullName}`,
-            });
-          }
-
-          toast({
-            title: 'Credential Verified!',
-            description: 'The credential is valid and matches the blockchain record',
-          });
-        } else {
-          setVerificationResult('invalid');
-          toast({
-            title: 'Verification Failed',
-            description: 'The credential data does not match the blockchain record',
-            variant: 'destructive',
-          });
-        }
-      } else {
-        // Just show that a credential exists
-        setVerificationResult('valid');
-        toast({
-          title: 'Credential Found',
-          description: 'A credential exists for this address',
         });
       }
     } catch (error: any) {
@@ -126,12 +96,23 @@ export function CredentialVerifier() {
   const getVerificationQRData = () => {
     return JSON.stringify({
       type: 'credential-verification',
-      address: formData.citizenAddress,
-      network: network.id,
+      address: citizenAddress,
       verified: verificationResult === 'valid',
-      hash: storedHash,
+      credential: credential ? {
+        fullName: credential.fullName,
+        nationalId: credential.nationalId,
+        issuedAt: credential.issuedAt,
+        expiryDate: credential.expiryDate,
+      } : null,
       timestamp: Date.now(),
     });
+  };
+
+  const formatDate = (dateStr: string | number) => {
+    if (typeof dateStr === 'number') {
+      return new Date(dateStr).toLocaleDateString();
+    }
+    return new Date(dateStr).toLocaleDateString();
   };
 
   return (
@@ -149,15 +130,10 @@ export function CredentialVerifier() {
       </CardHeader>
       <CardContent>
         <form onSubmit={handleVerify} className="space-y-4">
-          <div className="flex items-center justify-between mb-4">
-            <Label>Network</Label>
-            <NetworkSelector />
-          </div>
-
           <div className="p-4 rounded-lg bg-primary/5 border border-primary/20 mb-4">
             <p className="text-sm text-muted-foreground">
               <strong className="text-primary">Note:</strong> Verification only requires the citizen's public wallet address. 
-              No face verification is needed for verifiers - just enter the address to check if a credential exists.
+              No face verification is needed - just enter the address to check if a valid credential exists.
             </p>
           </div>
 
@@ -166,75 +142,10 @@ export function CredentialVerifier() {
             <Input
               id="verifyAddress"
               placeholder="0x..."
-              value={formData.citizenAddress}
-              onChange={(e) => setFormData({ ...formData, citizenAddress: e.target.value })}
+              value={citizenAddress}
+              onChange={(e) => setCitizenAddress(e.target.value)}
               className="font-mono bg-secondary"
             />
-          </div>
-
-          <div className="p-4 rounded-lg bg-secondary/50 border border-border">
-            <p className="text-sm text-muted-foreground mb-4">
-              Optional: Enter credential details to verify the data matches
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="verifyName">Full Name</Label>
-                <Input
-                  id="verifyName"
-                  placeholder="John Doe"
-                  value={formData.fullName}
-                  onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                  className="bg-secondary"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="verifyNationalId">National ID</Label>
-                <Input
-                  id="verifyNationalId"
-                  placeholder="ID-123456789"
-                  value={formData.nationalId}
-                  onChange={(e) => setFormData({ ...formData, nationalId: e.target.value })}
-                  className="bg-secondary"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-              <div className="space-y-2">
-                <Label htmlFor="verifyDob">Date of Birth</Label>
-                <Input
-                  id="verifyDob"
-                  type="date"
-                  value={formData.dateOfBirth}
-                  onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
-                  className="bg-secondary"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="verifyIssued">Issued Date</Label>
-                <Input
-                  id="verifyIssued"
-                  type="date"
-                  value={formData.issuedDate}
-                  onChange={(e) => setFormData({ ...formData, issuedDate: e.target.value })}
-                  className="bg-secondary"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="verifyExpiry">Expiry Date</Label>
-                <Input
-                  id="verifyExpiry"
-                  type="date"
-                  value={formData.expiryDate}
-                  onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })}
-                  className="bg-secondary"
-                />
-              </div>
-            </div>
           </div>
 
           <Button 
@@ -260,31 +171,38 @@ export function CredentialVerifier() {
             <div className={`mt-4 p-4 rounded-lg border ${
               verificationResult === 'valid' 
                 ? 'bg-green-500/10 border-green-500/30' 
+                : verificationResult === 'expired'
+                ? 'bg-yellow-500/10 border-yellow-500/30'
                 : verificationResult === 'invalid'
                 ? 'bg-destructive/10 border-destructive/30'
-                : 'bg-warning/10 border-warning/30'
+                : 'bg-yellow-500/10 border-yellow-500/30'
             }`}>
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   {verificationResult === 'valid' ? (
                     <>
-                      <CheckCircle className="w-5 h-5 text-green-400" />
-                      <span className="font-medium text-green-400">Credential Valid</span>
+                      <CheckCircle className="w-6 h-6 text-green-400" />
+                      <span className="font-bold text-lg text-green-400">Credential Valid</span>
+                    </>
+                  ) : verificationResult === 'expired' ? (
+                    <>
+                      <AlertTriangle className="w-6 h-6 text-yellow-500" />
+                      <span className="font-bold text-lg text-yellow-500">Credential Expired</span>
                     </>
                   ) : verificationResult === 'invalid' ? (
                     <>
-                      <XCircle className="w-5 h-5 text-destructive" />
-                      <span className="font-medium text-destructive">Credential Invalid</span>
+                      <XCircle className="w-6 h-6 text-destructive" />
+                      <span className="font-bold text-lg text-destructive">No Credential Found</span>
                     </>
                   ) : (
                     <>
-                      <AlertTriangle className="w-5 h-5 text-warning" />
-                      <span className="font-medium text-warning">Verification Error</span>
+                      <AlertTriangle className="w-6 h-6 text-yellow-500" />
+                      <span className="font-bold text-lg text-yellow-500">Verification Error</span>
                     </>
                   )}
                 </div>
 
-                {verificationResult === 'valid' && storedHash && (
+                {(verificationResult === 'valid' || verificationResult === 'expired') && credential && (
                   <QRCodeButton 
                     value={getVerificationQRData()} 
                     title="Verification QR Code"
@@ -293,10 +211,61 @@ export function CredentialVerifier() {
                 )}
               </div>
 
-              {storedHash && (
-                <div className="mt-2">
-                  <p className="text-xs text-muted-foreground mb-1">Stored Credential Hash:</p>
-                  <p className="font-mono text-xs break-all text-primary">{storedHash}</p>
+              {credential && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="flex items-center gap-3 p-3 rounded-lg bg-background/50">
+                      <User className="w-5 h-5 text-primary" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Full Name</p>
+                        <p className="font-medium">{credential.fullName}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 p-3 rounded-lg bg-background/50">
+                      <CreditCard className="w-5 h-5 text-primary" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">National ID</p>
+                        <p className="font-medium">{credential.nationalId}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 p-3 rounded-lg bg-background/50">
+                      <Calendar className="w-5 h-5 text-primary" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Date of Birth</p>
+                        <p className="font-medium">{credential.dateOfBirth || 'Not specified'}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 p-3 rounded-lg bg-background/50">
+                      <Calendar className="w-5 h-5 text-primary" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Expiry Date</p>
+                        <p className={`font-medium ${verificationResult === 'expired' ? 'text-destructive' : ''}`}>
+                          {credential.expiryDate || 'No expiry'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-border">
+                    <p className="text-xs text-muted-foreground mb-1">Issued By</p>
+                    <p className="font-mono text-xs break-all">
+                      {credential.issuerAddress}
+                      {credential.issuerAddress.toLowerCase() === OWNER_ISSUER_ADDRESS.toLowerCase() && (
+                        <span className="ml-2 text-primary">(Owner)</span>
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Issued on {formatDate(credential.issuedAt)}
+                    </p>
+                  </div>
+
+                  <div className="pt-3 border-t border-border">
+                    <p className="text-xs text-muted-foreground mb-1">Credential Hash</p>
+                    <p className="font-mono text-xs break-all text-primary">{credential.credentialHash}</p>
+                  </div>
                 </div>
               )}
             </div>
