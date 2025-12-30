@@ -14,8 +14,9 @@ export interface StoredCredential {
   dateOfBirth: string;
   nationalId: string;
   expiryDate: string;
-  faceDescriptor?: number[]; // Face embedding for matching
-  faceImage?: string; // Base64 face image (thumbnail)
+  // Face data stored as encrypted/obfuscated hash - not raw biometric data
+  faceDescriptorHash?: string; // Hash of face descriptor for matching (not raw descriptor)
+  // Note: Face thumbnail removed to protect biometric privacy
 }
 
 const CREDENTIALS_KEY = 'issued_credentials';
@@ -47,46 +48,36 @@ export function getCredentialForCitizen(citizenAddress: string): StoredCredentia
   ) || null;
 }
 
-// Calculate Euclidean distance between two face descriptors
-function euclideanDistance(desc1: number[], desc2: number[]): number {
-  if (desc1.length !== desc2.length) return Infinity;
-  
-  let sum = 0;
-  for (let i = 0; i < desc1.length; i++) {
-    sum += Math.pow(desc1[i] - desc2[i], 2);
-  }
-  return Math.sqrt(sum);
+// Hash a face descriptor to create a secure, privacy-preserving identifier
+function hashFaceDescriptor(descriptor: number[]): string {
+  // Create a deterministic hash from the descriptor
+  const descriptorString = descriptor.map(d => d.toFixed(6)).join(',');
+  return ethers.keccak256(ethers.toUtf8Bytes(descriptorString));
 }
 
-// Check if a face matches any existing credential
-// Returns the matching credential if found, null otherwise
-export function findMatchingFace(
-  faceDescriptor: number[], 
-  threshold: number = 0.6
+// Check if a face hash matches any existing credential
+export function findMatchingFaceByHash(
+  faceDescriptorHash: string
 ): StoredCredential | null {
   const credentials = getStoredCredentials();
   
   for (const credential of credentials) {
-    if (credential.faceDescriptor && credential.faceDescriptor.length > 0) {
-      const distance = euclideanDistance(faceDescriptor, credential.faceDescriptor);
-      // Lower distance = more similar faces
-      // Typical threshold for face-api.js is 0.6
-      if (distance < threshold) {
-        return credential;
-      }
+    if (credential.faceDescriptorHash === faceDescriptorHash) {
+      return credential;
     }
   }
   
   return null;
 }
 
-// Check if a face already exists in the system
+// Check if a face already exists in the system (using hash comparison)
 export function checkDuplicateFace(faceDescriptor: number[]): {
   isDuplicate: boolean;
   existingCredential?: StoredCredential;
   message?: string;
 } {
-  const matching = findMatchingFace(faceDescriptor);
+  const hash = hashFaceDescriptor(faceDescriptor);
+  const matching = findMatchingFaceByHash(hash);
   
   if (matching) {
     return {
@@ -99,6 +90,11 @@ export function checkDuplicateFace(faceDescriptor: number[]): {
   return { isDuplicate: false };
 }
 
+// Get face descriptor hash from raw descriptor
+export function getFaceDescriptorHash(descriptor: number[]): string {
+  return hashFaceDescriptor(descriptor);
+}
+
 // Sign and issue credential (for owner issuer)
 export async function signAndIssueCredential(
   privateKey: string,
@@ -109,13 +105,32 @@ export async function signAndIssueCredential(
     nationalId: string;
     expiryDate: string;
     faceDescriptor?: number[];
-    faceImage?: string;
   }
 ): Promise<{ success: boolean; credential?: StoredCredential; error?: string }> {
   try {
+    // Validate Ethereum address format
+    if (!ethers.isAddress(citizenAddress)) {
+      return { success: false, error: 'Invalid Ethereum address format' };
+    }
+
+    // Validate required fields
+    if (!credentialData.fullName?.trim()) {
+      return { success: false, error: 'Full name is required' };
+    }
+    if (!credentialData.nationalId?.trim()) {
+      return { success: false, error: 'National ID is required' };
+    }
+    if (credentialData.fullName.length > 100) {
+      return { success: false, error: 'Full name must be less than 100 characters' };
+    }
+    if (credentialData.nationalId.length > 50) {
+      return { success: false, error: 'National ID must be less than 50 characters' };
+    }
+
     const wallet = new ethers.Wallet(privateKey);
     
     // Check for duplicate face BEFORE issuing
+    let faceDescriptorHash: string | undefined;
     if (credentialData.faceDescriptor && credentialData.faceDescriptor.length > 0) {
       const duplicateCheck = checkDuplicateFace(credentialData.faceDescriptor);
       if (duplicateCheck.isDuplicate) {
@@ -124,6 +139,8 @@ export async function signAndIssueCredential(
           error: `Duplicate detected: ${duplicateCheck.message}. This person cannot be issued another credential.`
         };
       }
+      // Store only the hash, not the raw descriptor
+      faceDescriptorHash = getFaceDescriptorHash(credentialData.faceDescriptor);
     }
     
     // Check if this wallet already has a credential
@@ -138,9 +155,9 @@ export async function signAndIssueCredential(
     // Create credential hash
     const dataToHash = JSON.stringify({
       citizenAddress,
-      fullName: credentialData.fullName,
+      fullName: credentialData.fullName.trim(),
       dateOfBirth: credentialData.dateOfBirth,
-      nationalId: credentialData.nationalId,
+      nationalId: credentialData.nationalId.trim(),
       expiryDate: credentialData.expiryDate,
       issuer: wallet.address,
       issuedAt: Date.now()
@@ -156,19 +173,19 @@ export async function signAndIssueCredential(
       signature,
       issuerAddress: wallet.address,
       issuedAt: Date.now(),
-      fullName: credentialData.fullName,
+      fullName: credentialData.fullName.trim(),
       dateOfBirth: credentialData.dateOfBirth,
-      nationalId: credentialData.nationalId,
+      nationalId: credentialData.nationalId.trim(),
       expiryDate: credentialData.expiryDate,
-      faceDescriptor: credentialData.faceDescriptor,
-      faceImage: credentialData.faceImage
+      faceDescriptorHash,
     };
     
     saveCredential(credential);
     
     return { success: true, credential };
-  } catch (error: any) {
-    return { success: false, error: error.message || 'Failed to issue credential' };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to issue credential';
+    return { success: false, error: errorMessage };
   }
 }
 

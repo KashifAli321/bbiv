@@ -11,7 +11,8 @@ import { useWallet } from '@/contexts/WalletContext';
 import { FaceRecognition } from './FaceRecognition';
 import { addTransaction } from '@/components/wallet/TransactionHistory';
 import { isAuthorizedIssuer, getIssuerStatus, OWNER_ISSUER_ADDRESS } from '@/lib/issuer-config';
-import { signAndIssueCredential, getStoredCredentials } from '@/lib/credential-storage';
+import { signAndIssueCredential, getStoredCredentials, getFaceDescriptorHash } from '@/lib/credential-storage';
+import { ethers } from 'ethers';
 
 export function CredentialIssuer() {
   const { privateKey, address, network } = useWallet();
@@ -20,8 +21,8 @@ export function CredentialIssuer() {
   const [issuedSuccessfully, setIssuedSuccessfully] = useState(false);
   const [faceVerified, setFaceVerified] = useState(false);
   const [capturedFaceDescriptor, setCapturedFaceDescriptor] = useState<number[] | null>(null);
-  const [capturedFaceImage, setCapturedFaceImage] = useState<string | null>(null);
   const [showFaceCapture, setShowFaceCapture] = useState(false);
+  const [addressError, setAddressError] = useState<string | null>(null);
   
   const [formData, setFormData] = useState({
     citizenAddress: '',
@@ -34,21 +35,18 @@ export function CredentialIssuer() {
   const issuerStatus = address ? getIssuerStatus(address) : { authorized: false, message: 'Connect wallet' };
   const isOwner = address?.toLowerCase() === OWNER_ISSUER_ADDRESS.toLowerCase();
 
-  // Get all existing face descriptors for duplicate detection
-  const existingFaceDescriptors = useMemo(() => {
+  // Get all existing face descriptor hashes for duplicate detection
+  const existingFaceHashes = useMemo(() => {
     const credentials = getStoredCredentials();
     return credentials
-      .filter(c => c.faceDescriptor && c.faceDescriptor.length > 0)
-      .map(c => c.faceDescriptor as number[]);
+      .filter(c => c.faceDescriptorHash)
+      .map(c => c.faceDescriptorHash as string);
   }, []);
 
-  const handleFaceVerified = (verified: boolean, faceDescriptor?: number[], faceImage?: string) => {
+  const handleFaceVerified = (verified: boolean, faceDescriptor?: number[]) => {
     setFaceVerified(verified);
     if (faceDescriptor) {
       setCapturedFaceDescriptor(faceDescriptor);
-    }
-    if (faceImage) {
-      setCapturedFaceImage(faceImage);
     }
   };
 
@@ -83,6 +81,16 @@ export function CredentialIssuer() {
       return;
     }
 
+    // Validate Ethereum address
+    if (!ethers.isAddress(formData.citizenAddress)) {
+      toast({
+        title: 'Invalid Address',
+        description: 'Please enter a valid Ethereum address',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     if (!formData.citizenAddress || !formData.fullName || !formData.nationalId) {
       toast({
         title: 'Missing Information',
@@ -105,7 +113,6 @@ export function CredentialIssuer() {
           nationalId: formData.nationalId,
           expiryDate: formData.expiryDate,
           faceDescriptor: capturedFaceDescriptor || undefined,
-          faceImage: capturedFaceImage || undefined,
         }
       );
 
@@ -206,7 +213,7 @@ export function CredentialIssuer() {
           isRequired={true}
           mode="capture"
           checkDuplicate={true}
-          existingDescriptors={existingFaceDescriptors}
+          existingFaceHashes={existingFaceHashes}
         />
       )}
 
@@ -276,9 +283,20 @@ export function CredentialIssuer() {
                   id="citizenAddress"
                   placeholder="0x..."
                   value={formData.citizenAddress}
-                  onChange={(e) => setFormData({ ...formData, citizenAddress: e.target.value })}
-                  className="font-mono bg-secondary"
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setFormData({ ...formData, citizenAddress: value });
+                    if (value && !ethers.isAddress(value)) {
+                      setAddressError('Invalid Ethereum address format');
+                    } else {
+                      setAddressError(null);
+                    }
+                  }}
+                  className={`font-mono bg-secondary ${addressError ? 'border-destructive' : ''}`}
                 />
+                {addressError && (
+                  <p className="text-xs text-destructive">{addressError}</p>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -12,6 +12,7 @@ import { FaucetInfo } from '@/components/wallet/FaucetInfo';
 import { TransactionHistory } from '@/components/wallet/TransactionHistory';
 import { useToast } from '@/hooks/use-toast';
 import { sendTransaction } from '@/lib/wallet';
+import { ethers } from 'ethers';
 
 export default function WalletPage() {
   const { isConnected, createNewWallet, importFromPrivateKey, disconnect, privateKey, network } = useWallet();
@@ -19,6 +20,7 @@ export default function WalletPage() {
   const [importKey, setImportKey] = useState('');
   const [sendForm, setSendForm] = useState({ to: '', amount: '' });
   const [isSending, setIsSending] = useState(false);
+  const [addressError, setAddressError] = useState<string | null>(null);
 
   const handleImport = () => {
     if (!importKey.trim()) {
@@ -59,6 +61,27 @@ export default function WalletPage() {
       toast({
         title: 'Error',
         description: 'Please fill in all fields',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Validate recipient address
+    if (!ethers.isAddress(sendForm.to)) {
+      toast({
+        title: 'Invalid Address',
+        description: 'Please enter a valid Ethereum address',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Validate amount
+    const amount = parseFloat(sendForm.amount);
+    if (isNaN(amount) || amount <= 0) {
+      toast({
+        title: 'Invalid Amount',
+        description: 'Please enter a valid positive amount',
         variant: 'destructive',
       });
       return;
@@ -213,9 +236,20 @@ export default function WalletPage() {
                     id="toAddress"
                     placeholder="0x..."
                     value={sendForm.to}
-                    onChange={(e) => setSendForm({ ...sendForm, to: e.target.value })}
-                    className="font-mono bg-secondary"
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setSendForm({ ...sendForm, to: value });
+                      if (value && !ethers.isAddress(value)) {
+                        setAddressError('Invalid Ethereum address format');
+                      } else {
+                        setAddressError(null);
+                      }
+                    }}
+                    className={`font-mono bg-secondary ${addressError ? 'border-destructive' : ''}`}
                   />
+                  {addressError && (
+                    <p className="text-xs text-destructive">{addressError}</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
