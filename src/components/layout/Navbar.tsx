@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Shield, User, FileCheck, Wallet, Menu, X, Rocket } from 'lucide-react';
+import { Shield, User, FileCheck, Wallet, Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useWallet } from '@/contexts/WalletContext';
 import { truncateAddress } from '@/lib/wallet';
@@ -12,7 +12,6 @@ const navItems = [
   { path: '/issuer', label: 'Issuer', icon: FileCheck },
   { path: '/verifier', label: 'Verifier', icon: FileCheck },
   { path: '/wallet', label: 'Wallet', icon: Wallet },
-  { path: '/deploy', label: 'Deploy', icon: Rocket },
 ];
 
 export function Navbar() {

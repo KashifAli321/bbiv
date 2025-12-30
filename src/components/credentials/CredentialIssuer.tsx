@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileCheck, Shield, AlertTriangle, CheckCircle2, Rocket } from 'lucide-react';
+import { FileCheck, Shield, AlertTriangle, CheckCircle2, Lock } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,7 +12,6 @@ import { FaceRecognition } from './FaceRecognition';
 import { addTransaction } from '@/components/wallet/TransactionHistory';
 import { isAuthorizedIssuer, getIssuerStatus, OWNER_ISSUER_ADDRESS } from '@/lib/issuer-config';
 import { signAndIssueCredential } from '@/lib/credential-storage';
-import { Link } from 'react-router-dom';
 
 export function CredentialIssuer() {
   const { privateKey, address, network } = useWallet();
@@ -179,13 +178,14 @@ export function CredentialIssuer() {
           </div>
           
           {!issuerStatus.authorized && address && (
-            <div className="mt-4">
-              <Link to="/deploy">
-                <Button variant="outline" className="gap-2">
-                  <Rocket className="w-4 h-4" />
-                  Deploy Contract to Become Issuer
-                </Button>
-              </Link>
+            <div className="mt-4 p-3 rounded-lg bg-destructive/10 border border-destructive/30">
+              <div className="flex items-center gap-2 text-destructive">
+                <Lock className="w-4 h-4" />
+                <span className="text-sm font-medium">Access Restricted</span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Only the project owner can issue credentials
+              </p>
             </div>
           )}
         </CardContent>
@@ -224,20 +224,11 @@ export function CredentialIssuer() {
               </Button>
             </div>
           ) : !issuerStatus.authorized ? (
-            <Alert>
-              <Rocket className="h-4 w-4" />
-              <AlertTitle>Deployment Required</AlertTitle>
+            <Alert variant="destructive">
+              <Lock className="h-4 w-4" />
+              <AlertTitle>Access Restricted</AlertTitle>
               <AlertDescription>
-                To issue credentials, you need to deploy your own smart contract. 
-                This makes you the authorized issuer for your instance.
-                <div className="mt-3">
-                  <Link to="/deploy">
-                    <Button size="sm" className="gap-2">
-                      <Rocket className="w-4 h-4" />
-                      Deploy Contract
-                    </Button>
-                  </Link>
-                </div>
+                Only the project owner can issue credentials. This wallet is not authorized to issue credentials.
               </AlertDescription>
             </Alert>
           ) : (
