@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { NETWORKS, Network, DEFAULT_NETWORK } from '@/lib/networks';
 import { getBalance, getAllBalances, createWallet, importWallet, truncateAddress } from '@/lib/wallet';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 
 interface WalletContextType {
   address: string | null;
@@ -10,9 +12,10 @@ interface WalletContextType {
   balances: Record<string, string>;
   isConnected: boolean;
   isLoading: boolean;
+  hasLinkedWallet: boolean;
   setNetwork: (networkId: string) => void;
-  createNewWallet: () => void;
-  importFromPrivateKey: (key: string) => boolean;
+  createNewWallet: () => Promise<{ success: boolean; error?: string }>;
+  importFromPrivateKey: (key: string) => Promise<{ success: boolean; error?: string }>;
   disconnect: () => void;
   refreshBalance: () => Promise<void>;
   refreshAllBalances: () => Promise<void>;
@@ -20,12 +23,9 @@ interface WalletContextType {
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
-// SECURITY: Use sessionStorage instead of localStorage for private keys
-// Keys are cleared when the browser tab/window is closed
-const STORAGE_KEY = 'blockchain_identity_wallet';
-const SECURITY_WARNING_SHOWN_KEY = 'security_warning_acknowledged';
-
 export function WalletProvider({ children }: { children: ReactNode }) {
+  const { user, profile, isAuthenticated, updateProfile } = useAuth();
+  
   const [address, setAddress] = useState<string | null>(null);
   const [privateKey, setPrivateKey] = useState<string | null>(null);
   const [network, setNetworkState] = useState<Network>(NETWORKS[DEFAULT_NETWORK]);
@@ -33,36 +33,25 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [balances, setBalances] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
 
-  // Load wallet from session storage on mount (not localStorage for security)
+  // Load wallet from profile when user logs in
   useEffect(() => {
-    const stored = sessionStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        const data = JSON.parse(stored);
-        if (data.address && data.privateKey) {
-          setAddress(data.address);
-          setPrivateKey(data.privateKey);
-          if (data.networkId && NETWORKS[data.networkId]) {
-            setNetworkState(NETWORKS[data.networkId]);
-          }
-        }
-      } catch (e) {
-        console.error('Failed to load wallet from storage');
-        sessionStorage.removeItem(STORAGE_KEY);
+    if (isAuthenticated && profile) {
+      if (profile.wallet_address && profile.wallet_private_key_encrypted) {
+        setAddress(profile.wallet_address);
+        setPrivateKey(profile.wallet_private_key_encrypted);
+      } else {
+        // No wallet linked yet
+        setAddress(null);
+        setPrivateKey(null);
       }
+    } else {
+      // Not authenticated, clear wallet
+      setAddress(null);
+      setPrivateKey(null);
+      setBalance('0');
+      setBalances({});
     }
-  }, []);
-
-  // Save wallet to session storage (cleared when browser closes)
-  useEffect(() => {
-    if (address && privateKey) {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
-        address,
-        privateKey,
-        networkId: network.id,
-      }));
-    }
-  }, [address, privateKey, network]);
+  }, [isAuthenticated, profile]);
 
   // Refresh balance when address or network changes
   useEffect(() => {
@@ -103,29 +92,92 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const createNewWallet = () => {
-    const wallet = createWallet();
-    setAddress(wallet.address);
-    setPrivateKey(wallet.privateKey);
-    setBalance('0');
-  };
+  const createNewWallet = async (): Promise<{ success: boolean; error?: string }> => {
+    if (!isAuthenticated || !user) {
+      return { success: false, error: 'You must be logged in to create a wallet' };
+    }
 
-  const importFromPrivateKey = (key: string): boolean => {
-    const wallet = importWallet(key);
-    if (wallet) {
+    // Check if user already has a wallet
+    if (profile?.wallet_address) {
+      return { success: false, error: 'You already have a wallet linked to your account. Only one wallet per account is allowed.' };
+    }
+
+    try {
+      const wallet = createWallet();
+      
+      // Save to profile
+      const { error } = await updateProfile({
+        wallet_address: wallet.address,
+        wallet_private_key_encrypted: wallet.privateKey
+      });
+
+      if (error) {
+        return { success: false, error: error.message || 'Failed to save wallet to your account' };
+      }
+
       setAddress(wallet.address);
       setPrivateKey(wallet.privateKey);
-      return true;
+      setBalance('0');
+      
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Failed to create wallet' };
     }
-    return false;
+  };
+
+  const importFromPrivateKey = async (key: string): Promise<{ success: boolean; error?: string }> => {
+    if (!isAuthenticated || !user) {
+      return { success: false, error: 'You must be logged in to import a wallet' };
+    }
+
+    // Check if user already has a wallet
+    if (profile?.wallet_address) {
+      return { success: false, error: 'You already have a wallet linked to your account. Only one wallet per account is allowed.' };
+    }
+
+    try {
+      const wallet = importWallet(key);
+      if (!wallet) {
+        return { success: false, error: 'Invalid private key format' };
+      }
+
+      // Check if this wallet is already linked to another account
+      const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('wallet_address', wallet.address)
+        .maybeSingle();
+
+      if (existingProfile) {
+        return { success: false, error: 'This wallet is already linked to another account' };
+      }
+
+      // Save to profile
+      const { error } = await updateProfile({
+        wallet_address: wallet.address,
+        wallet_private_key_encrypted: wallet.privateKey
+      });
+
+      if (error) {
+        return { success: false, error: error.message || 'Failed to save wallet to your account' };
+      }
+
+      setAddress(wallet.address);
+      setPrivateKey(wallet.privateKey);
+      
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Failed to import wallet' };
+    }
   };
 
   const disconnect = () => {
+    // Note: We don't actually remove the wallet from profile
+    // Just clear local state - wallet stays linked to account
     setAddress(null);
     setPrivateKey(null);
     setBalance('0');
     setBalances({});
-    sessionStorage.removeItem(STORAGE_KEY);
   };
 
   return (
@@ -138,6 +190,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         balances,
         isConnected: !!address,
         isLoading,
+        hasLinkedWallet: !!profile?.wallet_address,
         setNetwork,
         createNewWallet,
         importFromPrivateKey,

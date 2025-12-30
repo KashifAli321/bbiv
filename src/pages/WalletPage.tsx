@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { Wallet, Plus, Download, LogOut, AlertTriangle } from 'lucide-react';
+import { Wallet, Plus, Download, AlertTriangle, Shield, Lock } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useWallet } from '@/contexts/WalletContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { WalletCard } from '@/components/wallet/WalletCard';
 import { BalanceGrid } from '@/components/wallet/BalanceGrid';
 import { FaucetInfo } from '@/components/wallet/FaucetInfo';
@@ -15,14 +17,17 @@ import { sendTransaction } from '@/lib/wallet';
 import { ethers } from 'ethers';
 
 export default function WalletPage() {
-  const { isConnected, createNewWallet, importFromPrivateKey, disconnect, privateKey, network } = useWallet();
+  const { isConnected, createNewWallet, importFromPrivateKey, privateKey, network, hasLinkedWallet } = useWallet();
+  const { profile } = useAuth();
   const { toast } = useToast();
   const [importKey, setImportKey] = useState('');
   const [sendForm, setSendForm] = useState({ to: '', amount: '' });
   const [isSending, setIsSending] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [addressError, setAddressError] = useState<string | null>(null);
 
-  const handleImport = () => {
+  const handleImport = async () => {
     if (!importKey.trim()) {
       toast({
         title: 'Error',
@@ -32,28 +37,42 @@ export default function WalletPage() {
       return;
     }
 
-    const success = importFromPrivateKey(importKey);
-    if (success) {
+    setIsImporting(true);
+    const result = await importFromPrivateKey(importKey);
+    
+    if (result.success) {
       toast({
-        title: 'Wallet Imported!',
-        description: 'Your wallet has been imported successfully',
+        title: 'Wallet Linked!',
+        description: 'Your wallet has been securely linked to your account',
       });
       setImportKey('');
     } else {
       toast({
         title: 'Import Failed',
-        description: 'Invalid private key format',
+        description: result.error || 'Invalid private key format',
         variant: 'destructive',
       });
     }
+    setIsImporting(false);
   };
 
-  const handleCreate = () => {
-    createNewWallet();
-    toast({
-      title: 'Wallet Created!',
-      description: 'Your new wallet has been created. Make sure to backup your private key!',
-    });
+  const handleCreate = async () => {
+    setIsCreating(true);
+    const result = await createNewWallet();
+    
+    if (result.success) {
+      toast({
+        title: 'Wallet Created!',
+        description: 'Your new wallet has been created and linked to your account. Make sure to backup your private key!',
+      });
+    } else {
+      toast({
+        title: 'Creation Failed',
+        description: result.error || 'Failed to create wallet',
+        variant: 'destructive',
+      });
+    }
+    setIsCreating(false);
   };
 
   const handleSend = async () => {
@@ -123,100 +142,123 @@ export default function WalletPage() {
             <Wallet className="w-6 h-6 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold">Wallet Management</h1>
-            <p className="text-muted-foreground">Create, import, and manage your blockchain wallet</p>
+            <h1 className="text-2xl font-bold">Your Wallet</h1>
+            <p className="text-muted-foreground">One wallet per account for secure identity verification</p>
           </div>
         </div>
 
+        {/* Info about one wallet policy */}
+        <Alert className="mb-6 border-primary/30 bg-primary/5">
+          <Lock className="h-4 w-4 text-primary" />
+          <AlertDescription className="text-sm">
+            <span className="font-medium">One Wallet Per Account:</span> Your wallet is permanently linked to your identity. 
+            This ensures secure credential verification and prevents multi-account abuse.
+          </AlertDescription>
+        </Alert>
+
         {!isConnected ? (
           <div className="space-y-6">
-            <Card className="border-border bg-card">
-              <CardHeader className="text-center">
-                <CardTitle>Connect Your Wallet</CardTitle>
-                <CardDescription>Create a new wallet or import an existing one</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Tabs defaultValue="create" className="w-full">
-                  <TabsList className="grid w-full grid-cols-2 bg-secondary">
-                    <TabsTrigger value="create">Create New</TabsTrigger>
-                    <TabsTrigger value="import">Import Existing</TabsTrigger>
-                  </TabsList>
+            {hasLinkedWallet ? (
+              // User has a wallet but it's not loaded (shouldn't happen normally)
+              <Card className="border-border bg-card">
+                <CardContent className="pt-6 text-center py-12">
+                  <Shield className="w-16 h-16 mx-auto text-primary mb-4" />
+                  <h2 className="text-xl font-medium mb-2">Wallet Linked</h2>
+                  <p className="text-muted-foreground">
+                    Your wallet is securely linked to your account. Please refresh the page if it doesn't load.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card className="border-border bg-card">
+                <CardHeader className="text-center">
+                  <CardTitle>Link Your Wallet</CardTitle>
+                  <CardDescription>Create a new wallet or import an existing one to link to your account</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Tabs defaultValue="create" className="w-full">
+                    <TabsList className="grid w-full grid-cols-2 bg-secondary">
+                      <TabsTrigger value="create">Create New</TabsTrigger>
+                      <TabsTrigger value="import">Import Existing</TabsTrigger>
+                    </TabsList>
 
-                  <TabsContent value="create" className="space-y-4 mt-6">
-                    <div className="text-center py-8">
-                      <div className="w-16 h-16 rounded-full gradient-primary flex items-center justify-center mx-auto mb-4">
-                        <Plus className="w-8 h-8 text-primary-foreground" />
-                      </div>
-                      <h3 className="text-lg font-medium mb-2">Create New Wallet</h3>
-                      <p className="text-muted-foreground text-sm mb-6">
-                        Generate a new wallet with a random private key
-                      </p>
-                      <Button 
-                        onClick={handleCreate} 
-                        className="gradient-primary text-primary-foreground"
-                      >
-                        <Plus className="w-4 h-4 mr-2" />
-                        Create Wallet
-                      </Button>
-                    </div>
-
-                    <div className="p-4 rounded-lg bg-warning/10 border border-warning/30">
-                      <div className="flex items-start gap-2">
-                        <AlertTriangle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
-                        <div className="text-sm">
-                          <p className="font-medium text-warning">Important!</p>
-                          <p className="text-muted-foreground">
-                            After creating your wallet, make sure to backup your private key securely. 
-                            You will need it to recover your wallet.
-                          </p>
+                    <TabsContent value="create" className="space-y-4 mt-6">
+                      <div className="text-center py-8">
+                        <div className="w-16 h-16 rounded-full gradient-primary flex items-center justify-center mx-auto mb-4">
+                          <Plus className="w-8 h-8 text-primary-foreground" />
                         </div>
-                      </div>
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="import" className="space-y-4 mt-6">
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="privateKey">Private Key</Label>
-                        <Input
-                          id="privateKey"
-                          type="password"
-                          placeholder="0x..."
-                          value={importKey}
-                          onChange={(e) => setImportKey(e.target.value)}
-                          className="font-mono bg-secondary"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Enter your private key starting with 0x
+                        <h3 className="text-lg font-medium mb-2">Create New Wallet</h3>
+                        <p className="text-muted-foreground text-sm mb-6">
+                          Generate a new wallet and link it to your account permanently
                         </p>
+                        <Button 
+                          onClick={handleCreate} 
+                          disabled={isCreating}
+                          className="gradient-primary text-primary-foreground"
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          {isCreating ? 'Creating...' : 'Create & Link Wallet'}
+                        </Button>
                       </div>
 
-                      <Button 
-                        onClick={handleImport} 
-                        className="w-full gradient-primary text-primary-foreground"
-                      >
-                        <Download className="w-4 h-4 mr-2" />
-                        Import Wallet
-                      </Button>
-                    </div>
-
-                    <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/30">
-                      <div className="flex items-start gap-2">
-                        <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
-                        <div className="text-sm">
-                          <p className="font-medium text-destructive">Security Warning</p>
-                          <p className="text-muted-foreground">
-                            Never share your private key with anyone. Only import your key on trusted devices.
-                          </p>
+                      <div className="p-4 rounded-lg bg-warning/10 border border-warning/30">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+                          <div className="text-sm">
+                            <p className="font-medium text-warning">Important!</p>
+                            <p className="text-muted-foreground">
+                              This wallet will be permanently linked to your account. 
+                              Make sure to backup your private key securely after creation.
+                            </p>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </TabsContent>
-                </Tabs>
-              </CardContent>
-            </Card>
+                    </TabsContent>
 
-            {/* Show faucet info even before wallet is connected */}
+                    <TabsContent value="import" className="space-y-4 mt-6">
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="privateKey">Private Key</Label>
+                          <Input
+                            id="privateKey"
+                            type="password"
+                            placeholder="0x..."
+                            value={importKey}
+                            onChange={(e) => setImportKey(e.target.value)}
+                            className="font-mono bg-secondary"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Enter your private key starting with 0x
+                          </p>
+                        </div>
+
+                        <Button 
+                          onClick={handleImport}
+                          disabled={isImporting}
+                          className="w-full gradient-primary text-primary-foreground"
+                        >
+                          <Download className="w-4 h-4 mr-2" />
+                          {isImporting ? 'Importing...' : 'Import & Link Wallet'}
+                        </Button>
+                      </div>
+
+                      <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/30">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+                          <div className="text-sm">
+                            <p className="font-medium text-destructive">Security Warning</p>
+                            <p className="text-muted-foreground">
+                              Never share your private key with anyone. This wallet will be permanently linked to your account.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </TabsContent>
+                  </Tabs>
+                </CardContent>
+              </Card>
+            )}
+
             <FaucetInfo />
           </div>
         ) : (
@@ -280,15 +322,6 @@ export default function WalletPage() {
             <FaucetInfo />
             
             <TransactionHistory />
-
-            <Button 
-              variant="destructive" 
-              onClick={disconnect}
-              className="w-full"
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              Disconnect Wallet
-            </Button>
           </div>
         )}
       </div>
