@@ -17,7 +17,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { ethers } from 'ethers';
 
 export function CredentialIssuer() {
-  const { privateKey, address, network } = useWallet();
+  const { address, network, signWithWallet, isConnected } = useWallet();
   const { user } = useAuth();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
@@ -84,7 +84,7 @@ export function CredentialIssuer() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!privateKey || !address) {
+    if (!isConnected || !address) {
       toast({
         title: 'Wallet Required',
         description: 'Please connect your wallet first',
@@ -147,20 +147,25 @@ export function CredentialIssuer() {
     setIssuedSuccessfully(false);
 
     try {
-      const result = await signAndIssueCredential(
-        privateKey,
-        formData.citizenAddress,
-        citizenUserId,
-        {
-          fullName: formData.fullName,
-          dateOfBirth: formData.dateOfBirth,
-          nationalId: formData.nationalId,
-          expiryDate: formData.expiryDate,
-          faceDescriptor: capturedFaceDescriptor || undefined,
-        }
-      );
+      // Use secure signing - private key is decrypted only for this operation
+      const signResult = await signWithWallet(async (privateKey) => {
+        return await signAndIssueCredential(
+          privateKey,
+          formData.citizenAddress,
+          citizenUserId,
+          {
+            fullName: formData.fullName,
+            dateOfBirth: formData.dateOfBirth,
+            nationalId: formData.nationalId,
+            expiryDate: formData.expiryDate,
+            faceDescriptor: capturedFaceDescriptor || undefined,
+          }
+        );
+      });
 
-      if (result.success && result.credential) {
+      const result = signResult.success ? signResult.result : null;
+
+      if (result?.success && result.credential) {
         setIssuedSuccessfully(true);
         
         // Add to transaction history
@@ -193,7 +198,7 @@ export function CredentialIssuer() {
       } else {
         toast({
           title: 'Issuance Failed',
-          description: result.error || 'Failed to issue credential',
+          description: signResult.error || result?.error || 'Failed to issue credential',
           variant: 'destructive',
         });
       }
@@ -277,7 +282,7 @@ export function CredentialIssuer() {
           </div>
         </CardHeader>
         <CardContent>
-          {!privateKey ? (
+          {!isConnected ? (
             <div className="text-center py-8">
               <AlertTriangle className="w-12 h-12 mx-auto text-yellow-500 mb-4" />
               <p className="text-muted-foreground mb-4">
