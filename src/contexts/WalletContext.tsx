@@ -23,8 +23,8 @@ interface WalletContextType {
   isLoading: boolean;
   hasLinkedWallet: boolean;
   setNetwork: (networkId: string) => void;
-  createNewWallet: (loginPassword: string) => Promise<{ success: boolean; error?: string }>;
-  importFromPrivateKey: (key: string, loginPassword: string) => Promise<{ success: boolean; error?: string }>;
+  createNewWallet: (walletPassword: string) => Promise<{ success: boolean; error?: string }>;
+  importFromPrivateKey: (key: string, walletPassword: string) => Promise<{ success: boolean; error?: string }>;
   disconnect: () => void;
   refreshBalance: () => Promise<void>;
   refreshAllBalances: () => Promise<void>;
@@ -188,7 +188,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [getDecryptedPrivateKey]);
 
-  const createNewWallet = async (loginPassword: string): Promise<{ success: boolean; error?: string }> => {
+  const createNewWallet = async (walletPassword: string): Promise<{ success: boolean; error?: string }> => {
     if (!isAuthenticated || !user || !profile) {
       return { success: false, error: 'You must be logged in to create a wallet' };
     }
@@ -197,8 +197,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       return { success: false, error: 'You already have a wallet linked to your account. Only one wallet per account is allowed.' };
     }
 
-    if (!loginPassword || loginPassword.length < 6) {
-      return { success: false, error: 'Please enter your login password' };
+    if (!walletPassword || walletPassword.length < 6) {
+      return { success: false, error: 'Please enter a wallet password (min 6 characters)' };
     }
 
     const encryptionPassword = getEncryptionPassword();
@@ -207,9 +207,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      // Derive wallet from username and login password (deterministic)
+      // Derive wallet from username and wallet password (deterministic)
+      // For both OAuth and regular users, we use their chosen wallet password
       const username = profile.username;
-      const privateKey = await deriveWalletFromCredentials(username, loginPassword);
+      const privateKey = await deriveWalletFromCredentials(username, walletPassword);
       
       // Import the derived wallet to get the address
       const wallet = importWallet(privateKey);
@@ -250,7 +251,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const importFromPrivateKey = async (key: string, loginPassword: string): Promise<{ success: boolean; error?: string }> => {
+  const importFromPrivateKey = async (key: string, walletPassword: string): Promise<{ success: boolean; error?: string }> => {
     if (!isAuthenticated || !user || !profile) {
       return { success: false, error: 'You must be logged in to import a wallet' };
     }
@@ -259,8 +260,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       return { success: false, error: 'You already have a wallet linked to your account. Only one wallet per account is allowed.' };
     }
 
-    if (!loginPassword) {
-      return { success: false, error: 'Please enter your login password to secure the wallet' };
+    if (!walletPassword) {
+      return { success: false, error: 'Please enter a wallet password to secure the wallet' };
     }
 
     const encryptionPassword = getEncryptionPassword();

@@ -9,6 +9,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   isFaceVerified: boolean;
+  isOAuthUser: boolean;
   signUp: (email: string, password: string, username: string) => Promise<{ error: any }>;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signInWithGoogle: () => Promise<{ error: any }>;
@@ -20,6 +21,7 @@ interface AuthContextType {
   updateProfile: (updates: Partial<Profile>) => Promise<{ error: any }>;
   checkUsernameExists: (username: string) => Promise<boolean>;
   checkFaceHashExists: (hash: string) => Promise<boolean>;
+  checkFaceSimilarity: (descriptor: number[]) => Promise<boolean>;
 }
 
 interface Profile {
@@ -27,6 +29,7 @@ interface Profile {
   user_id: string;
   username: string;
   face_descriptor_hash: string | null;
+  face_descriptor: number[] | null;
   wallet_address: string | null;
   wallet_private_key_encrypted: string | null;
   created_at: string;
@@ -41,6 +44,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isFaceVerified, setIsFaceVerified] = useState(false);
+
+  // Check if user signed in via OAuth (no password-based auth)
+  const isOAuthUser = user?.app_metadata?.provider === 'google' || 
+                      (user?.app_metadata?.providers?.includes('google') ?? false);
 
   useEffect(() => {
     // Set up auth state listener FIRST
@@ -116,6 +123,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     if (error) {
       console.error('Error checking face hash:', error);
+      return false;
+    }
+    
+    return data === true;
+  };
+
+  // Check if a similar face already exists using Euclidean distance
+  const checkFaceSimilarity = async (descriptor: number[]): Promise<boolean> => {
+    const { data, error } = await supabase.rpc('check_face_similarity', {
+      _descriptor: descriptor,
+      _threshold: 0.6
+    });
+    
+    if (error) {
+      console.error('Error checking face similarity:', error);
       return false;
     }
     
@@ -235,6 +257,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isAuthenticated: !!user,
         isFaceVerified,
+        isOAuthUser,
         signUp,
         signIn,
         signInWithGoogle,
@@ -245,7 +268,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setFaceVerified,
         updateProfile,
         checkUsernameExists,
-        checkFaceHashExists
+        checkFaceHashExists,
+        checkFaceSimilarity
       }}
     >
       {children}

@@ -22,6 +22,7 @@ export type Database = {
           credential_hash: string
           date_of_birth: string | null
           expiry_date: string | null
+          face_descriptor: number[] | null
           face_descriptor_hash: string | null
           full_name: string
           id: string
@@ -39,6 +40,7 @@ export type Database = {
           credential_hash: string
           date_of_birth?: string | null
           expiry_date?: string | null
+          face_descriptor?: number[] | null
           face_descriptor_hash?: string | null
           full_name: string
           id?: string
@@ -56,6 +58,7 @@ export type Database = {
           credential_hash?: string
           date_of_birth?: string | null
           expiry_date?: string | null
+          face_descriptor?: number[] | null
           face_descriptor_hash?: string | null
           full_name?: string
           id?: string
@@ -71,6 +74,7 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string
+          face_descriptor: number[] | null
           face_descriptor_hash: string | null
           id: string
           updated_at: string
@@ -81,6 +85,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          face_descriptor?: number[] | null
           face_descriptor_hash?: string | null
           id?: string
           updated_at?: string
@@ -91,6 +96,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          face_descriptor?: number[] | null
           face_descriptor_hash?: string | null
           id?: string
           updated_at?: string
@@ -124,6 +130,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      check_credential_face_similarity: {
+        Args: { _descriptor: number[]; _threshold?: number }
+        Returns: boolean
+      }
+      check_face_similarity: {
+        Args: { _descriptor: number[]; _threshold?: number }
+        Returns: boolean
+      }
       credential_exists_for_address: {
         Args: { _address: string }
         Returns: boolean
