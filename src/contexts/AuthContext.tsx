@@ -236,12 +236,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: { message: 'Not authenticated' } };
     }
 
+    console.log('Updating profile with:', Object.keys(updates));
+
+    // Filter out face_descriptor if it's an array (handle separately via raw query)
+    const { face_descriptor, ...otherUpdates } = updates as any;
+    
+    let updateData: Record<string, any> = { ...otherUpdates };
+    
+    // If face_descriptor is provided, add it to the update
+    if (face_descriptor && Array.isArray(face_descriptor)) {
+      updateData.face_descriptor = face_descriptor;
+    }
+
     const { error } = await supabase
       .from('profiles')
-      .update(updates)
+      .update(updateData)
       .eq('user_id', user.id);
 
-    if (!error) {
+    if (error) {
+      console.error('Profile update error:', error);
+    } else {
+      console.log('Profile updated successfully');
       setProfile(prev => prev ? { ...prev, ...updates } : null);
     }
 
