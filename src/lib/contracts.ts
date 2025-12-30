@@ -1,6 +1,16 @@
 // Smart contract ABIs and addresses for identity verification
 
-export const CREDENTIAL_CONTRACT_ADDRESS = '0xfB5E4033246E11851d9AC9f19109F734400f2Fc0';
+// Default contract address (placeholder - user should deploy their own)
+const DEFAULT_CONTRACT_ADDRESS = '0xfB5E4033246E11851d9AC9f19109F734400f2Fc0';
+
+// Get the deployed contract address (checks localStorage first)
+export function getCredentialContractAddress(): string {
+  const deployedAddress = localStorage.getItem('deployed_contract_address');
+  return deployedAddress || DEFAULT_CONTRACT_ADDRESS;
+}
+
+// For backward compatibility
+export const CREDENTIAL_CONTRACT_ADDRESS = getCredentialContractAddress();
 
 export const CREDENTIAL_CONTRACT_ABI = [
   {

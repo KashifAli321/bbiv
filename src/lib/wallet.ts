@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 import { NETWORKS, Network, DEFAULT_NETWORK } from './networks';
-import { CREDENTIAL_CONTRACT_ADDRESS, CREDENTIAL_CONTRACT_ABI } from './contracts';
+import { getCredentialContractAddress, CREDENTIAL_CONTRACT_ABI } from './contracts';
 
 export interface WalletState {
   address: string;
@@ -97,8 +97,9 @@ export function getSigner(privateKey: string, networkId: string = DEFAULT_NETWOR
 
 // Get credential contract
 export function getCredentialContract(signerOrProvider: ethers.Signer | ethers.Provider) {
+  const contractAddress = getCredentialContractAddress();
   return new ethers.Contract(
-    CREDENTIAL_CONTRACT_ADDRESS,
+    contractAddress,
     CREDENTIAL_CONTRACT_ABI,
     signerOrProvider
   );
