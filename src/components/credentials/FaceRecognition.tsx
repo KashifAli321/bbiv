@@ -374,7 +374,7 @@ export function FaceRecognition({
 
         <div className="space-y-4">
           {/* Camera/Preview Area */}
-          <div className="relative aspect-video bg-secondary rounded-lg overflow-hidden flex items-center justify-center">
+          <div className="relative aspect-[9/16] max-h-[500px] bg-secondary rounded-lg overflow-hidden flex items-center justify-center">
             {!isCameraActive && !capturedImage && (
               <div className="text-center p-8">
                 <Camera className="w-16 h-16 mx-auto text-muted-foreground mb-4" />

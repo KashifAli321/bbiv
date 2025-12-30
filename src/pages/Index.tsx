@@ -63,8 +63,20 @@ const roles = [
 export default function Index() {
   return (
     <div className="container mx-auto px-4">
+      {/* Welcome Message */}
+      <section className="text-center py-8">
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="pt-6">
+            <h2 className="text-2xl font-bold text-primary mb-2">Welcome to BlockID</h2>
+            <p className="text-muted-foreground">
+              <span className="font-semibold">Complete Name:</span> Blockchain Based Identity Verification
+            </p>
+          </CardContent>
+        </Card>
+      </section>
+
       {/* Hero Section */}
-      <section className="text-center py-16 md:py-24">
+      <section className="text-center py-12 md:py-20">
         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/30 mb-6">
           <Shield className="w-4 h-4 text-primary" />
           <span className="text-sm text-primary">Powered by Blockchain Technology</span>
