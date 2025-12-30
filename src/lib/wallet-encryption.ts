@@ -150,3 +150,44 @@ export function generateSessionPassword(sessionToken: string, userId: string): s
   // This means the key can only be derived while the session is active
   return `${sessionToken.slice(0, 32)}_${userId}`;
 }
+
+// Generate a deterministic wallet private key from username and password
+// Uses PBKDF2 with high iterations for security
+export async function deriveWalletFromCredentials(
+  username: string,
+  password: string
+): Promise<string> {
+  const encoder = new TextEncoder();
+  
+  // Create a unique salt from username
+  const salt = encoder.encode(`wallet_derivation_${username.toLowerCase().trim()}`);
+  
+  // Import password as key material
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+  
+  // Derive 256 bits (32 bytes) for the private key using PBKDF2
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: salt,
+      iterations: 250000, // High iterations for security
+      hash: 'SHA-256'
+    },
+    keyMaterial,
+    256
+  );
+  
+  // Convert to hex string (with 0x prefix for Ethereum)
+  const privateKeyBytes = new Uint8Array(derivedBits);
+  const privateKeyHex = '0x' + Array.from(privateKeyBytes)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+  
+  return privateKeyHex;
+}

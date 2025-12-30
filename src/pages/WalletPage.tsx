@@ -21,6 +21,9 @@ export default function WalletPage() {
   const { profile } = useAuth();
   const { toast } = useToast();
   const [importKey, setImportKey] = useState('');
+  const [walletPassword, setWalletPassword] = useState('');
+  const [confirmWalletPassword, setConfirmWalletPassword] = useState('');
+  const [importWalletPassword, setImportWalletPassword] = useState('');
   const [sendForm, setSendForm] = useState({ to: '', amount: '' });
   const [isSending, setIsSending] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -37,8 +40,17 @@ export default function WalletPage() {
       return;
     }
 
+    if (!importWalletPassword || importWalletPassword.length < 6) {
+      toast({
+        title: 'Error',
+        description: 'Please enter a wallet password (minimum 6 characters)',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsImporting(true);
-    const result = await importFromPrivateKey(importKey);
+    const result = await importFromPrivateKey(importKey, importWalletPassword);
     
     if (result.success) {
       toast({
@@ -46,6 +58,7 @@ export default function WalletPage() {
         description: 'Your wallet has been securely linked to your account',
       });
       setImportKey('');
+      setImportWalletPassword('');
     } else {
       toast({
         title: 'Import Failed',
@@ -57,14 +70,34 @@ export default function WalletPage() {
   };
 
   const handleCreate = async () => {
+    if (!walletPassword || walletPassword.length < 6) {
+      toast({
+        title: 'Error',
+        description: 'Wallet password must be at least 6 characters',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (walletPassword !== confirmWalletPassword) {
+      toast({
+        title: 'Error',
+        description: 'Passwords do not match',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsCreating(true);
-    const result = await createNewWallet();
+    const result = await createNewWallet(walletPassword);
     
     if (result.success) {
       toast({
         title: 'Wallet Created!',
         description: 'Your new wallet has been created and linked to your account securely.',
       });
+      setWalletPassword('');
+      setConfirmWalletPassword('');
     } else {
       toast({
         title: 'Creation Failed',
@@ -186,18 +219,48 @@ export default function WalletPage() {
                     </TabsList>
 
                     <TabsContent value="create" className="space-y-4 mt-6">
-                      <div className="text-center py-8">
-                        <div className="w-16 h-16 rounded-full gradient-primary flex items-center justify-center mx-auto mb-4">
-                          <Plus className="w-8 h-8 text-primary-foreground" />
+                      <div className="space-y-4 py-4">
+                        <div className="text-center mb-4">
+                          <div className="w-16 h-16 rounded-full gradient-primary flex items-center justify-center mx-auto mb-4">
+                            <Plus className="w-8 h-8 text-primary-foreground" />
+                          </div>
+                          <h3 className="text-lg font-medium mb-2">Create New Wallet</h3>
+                          <p className="text-muted-foreground text-sm">
+                            Your wallet is derived from your username and a password you choose
+                          </p>
                         </div>
-                        <h3 className="text-lg font-medium mb-2">Create New Wallet</h3>
-                        <p className="text-muted-foreground text-sm mb-6">
-                          Generate a new wallet and link it to your account permanently
-                        </p>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="walletPassword">Wallet Password</Label>
+                          <Input
+                            id="walletPassword"
+                            type="password"
+                            placeholder="Enter a secure password (min 6 characters)"
+                            value={walletPassword}
+                            onChange={(e) => setWalletPassword(e.target.value)}
+                            className="bg-secondary"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            This password generates your wallet. Use the same password to recover your wallet.
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="confirmWalletPassword">Confirm Password</Label>
+                          <Input
+                            id="confirmWalletPassword"
+                            type="password"
+                            placeholder="Confirm your wallet password"
+                            value={confirmWalletPassword}
+                            onChange={(e) => setConfirmWalletPassword(e.target.value)}
+                            className="bg-secondary"
+                          />
+                        </div>
+
                         <Button 
                           onClick={handleCreate} 
-                          disabled={isCreating}
-                          className="gradient-primary text-primary-foreground"
+                          disabled={isCreating || !walletPassword || walletPassword !== confirmWalletPassword}
+                          className="w-full gradient-primary text-primary-foreground"
                         >
                           <Plus className="w-4 h-4 mr-2" />
                           {isCreating ? 'Creating...' : 'Create & Link Wallet'}
@@ -210,8 +273,8 @@ export default function WalletPage() {
                           <div className="text-sm">
                             <p className="font-medium text-warning">Important!</p>
                             <p className="text-muted-foreground">
-                              This wallet will be permanently linked to your account. 
-                              Your private key is encrypted and stored securely.
+                              Remember your wallet password! It's used to derive your wallet from your username. 
+                              Using the same username + password will always generate the same wallet.
                             </p>
                           </div>
                         </div>
@@ -235,9 +298,24 @@ export default function WalletPage() {
                           </p>
                         </div>
 
+                        <div className="space-y-2">
+                          <Label htmlFor="importWalletPassword">Wallet Password</Label>
+                          <Input
+                            id="importWalletPassword"
+                            type="password"
+                            placeholder="Enter a password to secure your wallet"
+                            value={importWalletPassword}
+                            onChange={(e) => setImportWalletPassword(e.target.value)}
+                            className="bg-secondary"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            This password secures your imported wallet
+                          </p>
+                        </div>
+
                         <Button 
                           onClick={handleImport}
-                          disabled={isImporting}
+                          disabled={isImporting || !importKey || !importWalletPassword}
                           className="w-full gradient-primary text-primary-foreground"
                         >
                           <Download className="w-4 h-4 mr-2" />

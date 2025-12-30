@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { NETWORKS, Network, DEFAULT_NETWORK } from '@/lib/networks';
-import { getBalance, getAllBalances, createWallet, importWallet } from '@/lib/wallet';
+import { getBalance, getAllBalances, importWallet } from '@/lib/wallet';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { 
@@ -10,7 +10,8 @@ import {
   generateSessionPassword,
   setSessionPassword,
   getSessionPassword,
-  clearSessionPassword
+  clearSessionPassword,
+  deriveWalletFromCredentials
 } from '@/lib/wallet-encryption';
 
 interface WalletContextType {
@@ -22,8 +23,8 @@ interface WalletContextType {
   isLoading: boolean;
   hasLinkedWallet: boolean;
   setNetwork: (networkId: string) => void;
-  createNewWallet: () => Promise<{ success: boolean; error?: string }>;
-  importFromPrivateKey: (key: string) => Promise<{ success: boolean; error?: string }>;
+  createNewWallet: (walletPassword: string) => Promise<{ success: boolean; error?: string }>;
+  importFromPrivateKey: (key: string, walletPassword: string) => Promise<{ success: boolean; error?: string }>;
   disconnect: () => void;
   refreshBalance: () => Promise<void>;
   refreshAllBalances: () => Promise<void>;
@@ -187,25 +188,48 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [getDecryptedPrivateKey]);
 
-  const createNewWallet = async (): Promise<{ success: boolean; error?: string }> => {
-    if (!isAuthenticated || !user) {
+  const createNewWallet = async (walletPassword: string): Promise<{ success: boolean; error?: string }> => {
+    if (!isAuthenticated || !user || !profile) {
       return { success: false, error: 'You must be logged in to create a wallet' };
     }
 
-    if (profile?.wallet_address) {
+    if (profile.wallet_address) {
       return { success: false, error: 'You already have a wallet linked to your account. Only one wallet per account is allowed.' };
     }
 
-    const password = getEncryptionPassword();
-    if (!password) {
+    if (!walletPassword || walletPassword.length < 6) {
+      return { success: false, error: 'Wallet password must be at least 6 characters' };
+    }
+
+    const encryptionPassword = getEncryptionPassword();
+    if (!encryptionPassword) {
       return { success: false, error: 'Session not available for encryption' };
     }
 
     try {
-      const wallet = createWallet();
+      // Derive wallet from username and wallet password (deterministic)
+      const username = profile.username;
+      const privateKey = await deriveWalletFromCredentials(username, walletPassword);
+      
+      // Import the derived wallet to get the address
+      const wallet = importWallet(privateKey);
+      if (!wallet) {
+        return { success: false, error: 'Failed to derive wallet from credentials' };
+      }
+
+      // Check if this wallet address is already linked to another account
+      const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('wallet_address', wallet.address)
+        .maybeSingle();
+
+      if (existingProfile) {
+        return { success: false, error: 'This wallet is already linked to another account. Try a different password.' };
+      }
       
       // Encrypt the private key before storing
-      const encryptedKey = await encryptPrivateKey(wallet.privateKey, user.id, password);
+      const encryptedKey = await encryptPrivateKey(privateKey, user.id, encryptionPassword);
       
       // Save encrypted key to profile
       const { error } = await updateProfile({
@@ -220,24 +244,27 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setAddress(wallet.address);
       setBalance('0');
       
-      // wallet.privateKey goes out of scope here - not stored in state
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message || 'Failed to create wallet' };
     }
   };
 
-  const importFromPrivateKey = async (key: string): Promise<{ success: boolean; error?: string }> => {
-    if (!isAuthenticated || !user) {
+  const importFromPrivateKey = async (key: string, walletPassword: string): Promise<{ success: boolean; error?: string }> => {
+    if (!isAuthenticated || !user || !profile) {
       return { success: false, error: 'You must be logged in to import a wallet' };
     }
 
-    if (profile?.wallet_address) {
+    if (profile.wallet_address) {
       return { success: false, error: 'You already have a wallet linked to your account. Only one wallet per account is allowed.' };
     }
 
-    const password = getEncryptionPassword();
-    if (!password) {
+    if (!walletPassword || walletPassword.length < 6) {
+      return { success: false, error: 'Wallet password must be at least 6 characters' };
+    }
+
+    const encryptionPassword = getEncryptionPassword();
+    if (!encryptionPassword) {
       return { success: false, error: 'Session not available for encryption' };
     }
 
@@ -258,8 +285,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         return { success: false, error: 'This wallet is already linked to another account' };
       }
 
-      // Encrypt the private key before storing
-      const encryptedKey = await encryptPrivateKey(wallet.privateKey, user.id, password);
+      // Encrypt the private key with the wallet password for additional security
+      // First encrypt with wallet password, then with session password
+      const encryptedKey = await encryptPrivateKey(wallet.privateKey, user.id, encryptionPassword);
 
       // Save encrypted key to profile
       const { error } = await updateProfile({
@@ -273,7 +301,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
       setAddress(wallet.address);
       
-      // wallet.privateKey goes out of scope here - not stored in state
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message || 'Failed to import wallet' };
