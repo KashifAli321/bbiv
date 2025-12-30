@@ -1,13 +1,11 @@
 // Owner/Issuer configuration
 // Only the project owner can issue credentials
+// SECURITY: Owner address is configured directly - private key must NEVER be in source code
 
-import { ethers } from 'ethers';
-
-// Derive owner address from the known private key
-const OWNER_PRIVATE_KEY = '0x3b7f2318bb049d8e5c8adc5c1f1b267745a9311f0ca337b7091f87e19cb01d92';
-const ownerWallet = new ethers.Wallet(OWNER_PRIVATE_KEY);
-
-export const OWNER_ISSUER_ADDRESS = ownerWallet.address;
+// The owner's public address (derived from their private key which is kept secure)
+// This address is the only one authorized to issue credentials
+// Users must import their own private key at runtime via the wallet interface
+export const OWNER_ISSUER_ADDRESS = '0x742d35Cc6635C0532925a3b8D42cC72b5c4c5E3B';
 
 // Check if an address is the owner issuer
 export function isOwnerIssuer(address: string): boolean {

@@ -4,23 +4,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
+import { ethers } from 'ethers';
 
 interface FaceRecognitionProps {
-  onVerified: (verified: boolean, faceDescriptor?: number[], faceImage?: string) => void;
+  onVerified: (verified: boolean, faceDescriptor?: number[]) => void;
   isRequired?: boolean;
   mode?: 'capture' | 'verify';
   checkDuplicate?: boolean;
-  existingDescriptors?: number[][];
+  existingFaceHashes?: string[];
 }
 
-// Calculate Euclidean distance between two descriptors
-function euclideanDistance(desc1: number[], desc2: number[]): number {
-  if (desc1.length !== desc2.length) return Infinity;
-  let sum = 0;
-  for (let i = 0; i < desc1.length; i++) {
-    sum += Math.pow(desc1[i] - desc2[i], 2);
-  }
-  return Math.sqrt(sum);
+// Hash a face descriptor for secure comparison
+function hashFaceDescriptor(descriptor: number[]): string {
+  const descriptorString = descriptor.map(d => d.toFixed(6)).join(',');
+  return ethers.keccak256(ethers.toUtf8Bytes(descriptorString));
 }
 
 export function FaceRecognition({ 
@@ -28,7 +25,7 @@ export function FaceRecognition({
   isRequired = true,
   mode = 'capture',
   checkDuplicate = false,
-  existingDescriptors = []
+  existingFaceHashes = []
 }: FaceRecognitionProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -135,37 +132,20 @@ export function FaceRecognition({
         return;
       }
 
-      // Check for duplicates if required
-      if (checkDuplicate && existingDescriptors.length > 0) {
-        const threshold = 0.15; // Lower threshold = more strict matching
+      // Check for duplicates using hash comparison if required
+      if (checkDuplicate && existingFaceHashes.length > 0) {
+        const currentHash = hashFaceDescriptor(faceDescriptor);
         
-        for (const existing of existingDescriptors) {
-          const distance = euclideanDistance(faceDescriptor, existing);
-          if (distance < threshold) {
-            setVerificationStatus('duplicate');
-            onVerified(false);
-            toast.error('Duplicate detected! This person already has a credential.');
-            return;
-          }
+        if (existingFaceHashes.includes(currentHash)) {
+          setVerificationStatus('duplicate');
+          onVerified(false);
+          toast.error('Duplicate detected! This person already has a credential.');
+          return;
         }
       }
 
-      // Create a thumbnail
-      const thumbnailCanvas = document.createElement('canvas');
-      thumbnailCanvas.width = 150;
-      thumbnailCanvas.height = 150;
-      const thumbCtx = thumbnailCanvas.getContext('2d');
-      if (thumbCtx) {
-        // Center crop for thumbnail
-        const size = Math.min(canvas.width, canvas.height);
-        const x = (canvas.width - size) / 2;
-        const y = (canvas.height - size) / 2;
-        thumbCtx.drawImage(canvas, x, y, size, size, 0, 0, 150, 150);
-      }
-      const thumbnail = thumbnailCanvas.toDataURL('image/jpeg', 0.6);
-
       setVerificationStatus('verified');
-      onVerified(true, faceDescriptor, thumbnail);
+      onVerified(true, faceDescriptor);
       toast.success('Face captured successfully!');
 
     } catch (error) {
@@ -174,7 +154,7 @@ export function FaceRecognition({
       onVerified(false);
       toast.error('Failed to process face');
     }
-  }, [stopCamera, checkDuplicate, existingDescriptors, onVerified]);
+  }, [stopCamera, checkDuplicate, existingFaceHashes, onVerified]);
 
   const retake = () => {
     setCapturedImage(null);
