@@ -1,33 +1,76 @@
-// Owner/Issuer configuration
-// Only the project owner can issue credentials
-// SECURITY: Owner address is configured directly - private key must NEVER be in source code
+// Issuer configuration - Role-based access control
+// Authorization is now handled server-side via database roles (admin role = authorized issuer)
+// This file provides client-side helper functions that call server-side RPC functions
 
-// The owner's public address (derived from their private key which is kept secure)
-// This address is the only one authorized to issue credentials
-// Users must import their own private key at runtime via the wallet interface
-export const OWNER_ISSUER_ADDRESS = '0x742d35Cc6635C0532925a3b8D42cC72b5c4c5E3B';
+import { supabase } from '@/integrations/supabase/client';
 
-// Check if an address is the owner issuer
-export function isOwnerIssuer(address: string): boolean {
-  return address.toLowerCase() === OWNER_ISSUER_ADDRESS.toLowerCase();
+// Check if the current user is an authorized issuer (has admin role)
+export async function isAuthorizedIssuer(): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc('is_authorized_issuer');
+    if (error) {
+      console.error('Error checking issuer authorization:', error);
+      return false;
+    }
+    return data === true;
+  } catch (error) {
+    console.error('Error checking issuer authorization:', error);
+    return false;
+  }
 }
 
-// Only owner is authorized to issue credentials
-export function isAuthorizedIssuer(address: string): boolean {
-  return isOwnerIssuer(address);
-}
+// Get the issuer status message for the current user
+export async function getIssuerStatus(): Promise<{ authorized: boolean; message: string }> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      return {
+        authorized: false,
+        message: 'Please sign in to access issuer functions'
+      };
+    }
 
-// Get the issuer status message
-export function getIssuerStatus(address: string): { authorized: boolean; message: string } {
-  if (isOwnerIssuer(address)) {
+    const authorized = await isAuthorizedIssuer();
+    
+    if (authorized) {
+      return {
+        authorized: true,
+        message: 'You are an authorized credential issuer'
+      };
+    }
+    
     return {
-      authorized: true,
-      message: 'You are the authorized owner issuer'
+      authorized: false,
+      message: 'Only authorized administrators can issue credentials'
+    };
+  } catch (error) {
+    console.error('Error getting issuer status:', error);
+    return {
+      authorized: false,
+      message: 'Error checking authorization status'
     };
   }
+}
+
+// Synchronous check for use in components (uses cached value)
+// For real-time checks, use the async versions above
+let cachedIsAuthorized: boolean | null = null;
+let cachedCheckTime: number = 0;
+const CACHE_DURATION = 60000; // 1 minute cache
+
+export async function getCachedIssuerStatus(): Promise<boolean> {
+  const now = Date.now();
+  if (cachedIsAuthorized !== null && (now - cachedCheckTime) < CACHE_DURATION) {
+    return cachedIsAuthorized;
+  }
   
-  return {
-    authorized: false,
-    message: 'Only the project owner can issue credentials'
-  };
+  cachedIsAuthorized = await isAuthorizedIssuer();
+  cachedCheckTime = now;
+  return cachedIsAuthorized;
+}
+
+export function clearIssuerCache(): void {
+  cachedIsAuthorized = null;
+  cachedCheckTime = 0;
 }

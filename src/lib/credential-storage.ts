@@ -1,8 +1,9 @@
-// Local credential storage for signed credentials
-// Includes face data for duplicate detection
+// Secure credential storage using Supabase database with RLS
+// Credentials are stored server-side with proper access control
+// No PII stored in localStorage - all sensitive data is in the database
 
 import { ethers } from 'ethers';
-import { OWNER_ISSUER_ADDRESS } from './issuer-config';
+import { supabase } from '@/integrations/supabase/client';
 
 export interface StoredCredential {
   citizenAddress: string;
@@ -14,103 +15,101 @@ export interface StoredCredential {
   dateOfBirth: string;
   nationalId: string;
   expiryDate: string;
-  // Face data stored as encrypted/obfuscated hash - not raw biometric data
-  faceDescriptorHash?: string; // Hash of face descriptor for matching (not raw descriptor)
-  // Note: Face thumbnail removed to protect biometric privacy
+  faceDescriptorHash?: string;
 }
 
-const CREDENTIALS_KEY = 'issued_credentials';
-
-// Get all stored credentials
-export function getStoredCredentials(): StoredCredential[] {
-  const stored = localStorage.getItem(CREDENTIALS_KEY);
-  return stored ? JSON.parse(stored) : [];
+interface DatabaseCredential {
+  id: string;
+  citizen_user_id: string;
+  citizen_address: string;
+  issuer_user_id: string;
+  issuer_address: string;
+  credential_hash: string;
+  signature: string;
+  full_name: string;
+  date_of_birth: string | null;
+  national_id: string;
+  expiry_date: string | null;
+  face_descriptor_hash: string | null;
+  issued_at: string;
 }
 
-// Save a credential
-export function saveCredential(credential: StoredCredential): void {
-  const credentials = getStoredCredentials();
-  
-  // Remove existing credential for this citizen if any
-  const filtered = credentials.filter(c => 
-    c.citizenAddress.toLowerCase() !== credential.citizenAddress.toLowerCase()
-  );
-  
-  filtered.push(credential);
-  localStorage.setItem(CREDENTIALS_KEY, JSON.stringify(filtered));
-}
-
-// Get credential for a citizen
-export function getCredentialForCitizen(citizenAddress: string): StoredCredential | null {
-  const credentials = getStoredCredentials();
-  return credentials.find(c => 
-    c.citizenAddress.toLowerCase() === citizenAddress.toLowerCase()
-  ) || null;
+// Convert database credential to app credential format
+function toStoredCredential(dbCred: DatabaseCredential): StoredCredential {
+  return {
+    citizenAddress: dbCred.citizen_address,
+    credentialHash: dbCred.credential_hash,
+    signature: dbCred.signature,
+    issuerAddress: dbCred.issuer_address,
+    issuedAt: new Date(dbCred.issued_at).getTime(),
+    fullName: dbCred.full_name,
+    dateOfBirth: dbCred.date_of_birth || '',
+    nationalId: dbCred.national_id,
+    expiryDate: dbCred.expiry_date || '',
+    faceDescriptorHash: dbCred.face_descriptor_hash || undefined,
+  };
 }
 
 // Hash a face descriptor to create a secure, privacy-preserving identifier
-function hashFaceDescriptor(descriptor: number[]): string {
-  // Create a deterministic hash from the descriptor
+export function hashFaceDescriptor(descriptor: number[]): string {
   const descriptorString = descriptor.map(d => d.toFixed(6)).join(',');
   return ethers.keccak256(ethers.toUtf8Bytes(descriptorString));
 }
 
-// Check if a face hash matches any existing credential
-export function findMatchingFaceByHash(
-  faceDescriptorHash: string
-): StoredCredential | null {
-  const credentials = getStoredCredentials();
-  
-  for (const credential of credentials) {
-    if (credential.faceDescriptorHash === faceDescriptorHash) {
-      return credential;
-    }
-  }
-  
-  return null;
-}
-
-// Check if a face already exists in the system (using hash comparison)
-export function checkDuplicateFace(faceDescriptor: number[]): {
-  isDuplicate: boolean;
-  existingCredential?: StoredCredential;
-  message?: string;
-} {
-  const hash = hashFaceDescriptor(faceDescriptor);
-  const matching = findMatchingFaceByHash(hash);
-  
-  if (matching) {
-    return {
-      isDuplicate: true,
-      existingCredential: matching,
-      message: `This person already has a credential issued to wallet ${matching.citizenAddress.slice(0, 10)}...`
-    };
-  }
-  
-  return { isDuplicate: false };
-}
-
-// Get face descriptor hash from raw descriptor
+// Get face descriptor hash from raw descriptor (alias for consistency)
 export function getFaceDescriptorHash(descriptor: number[]): string {
   return hashFaceDescriptor(descriptor);
 }
 
-// Sanitize string input - remove potentially dangerous characters
+// Check if a face hash already exists in credentials (server-side check)
+export async function checkDuplicateFaceHash(faceHash: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc('credential_face_hash_exists', {
+      _hash: faceHash
+    });
+    if (error) {
+      console.error('Error checking duplicate face:', error);
+      return false;
+    }
+    return data === true;
+  } catch (error) {
+    console.error('Error checking duplicate face:', error);
+    return false;
+  }
+}
+
+// Check if a credential exists for an address (server-side check)
+export async function checkCredentialExistsForAddress(address: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc('credential_exists_for_address', {
+      _address: address
+    });
+    if (error) {
+      console.error('Error checking credential existence:', error);
+      return false;
+    }
+    return data === true;
+  } catch (error) {
+    console.error('Error checking credential existence:', error);
+    return false;
+  }
+}
+
+// Sanitize string input
 function sanitizeInput(input: string): string {
   return input
     .trim()
-    .replace(/[<>]/g, '') // Remove angle brackets to prevent HTML injection
-    .replace(/[\x00-\x1F\x7F]/g, ''); // Remove control characters
+    .replace(/[<>]/g, '')
+    .replace(/[\x00-\x1F\x7F]/g, '');
 }
 
-// Validate name format - allows letters, spaces, hyphens, apostrophes, and common international characters
+// Validate name format
 function isValidName(name: string): boolean {
-  // Allow Unicode letters, spaces, hyphens, apostrophes
   const nameRegex = /^[\p{L}\s\-'\.]+$/u;
   return nameRegex.test(name) && name.length >= 1 && name.length <= 100;
 }
 
-// Validate national ID format - alphanumeric with common separators
+// Validate national ID format
 function isValidNationalId(id: string): boolean {
   const idRegex = /^[\w\-\.\/]+$/;
   return idRegex.test(id) && id.length >= 1 && id.length <= 50;
@@ -118,17 +117,18 @@ function isValidNationalId(id: string): boolean {
 
 // Validate date format (YYYY-MM-DD)
 function isValidDateFormat(dateStr: string): boolean {
-  if (!dateStr) return true; // Optional dates are OK
+  if (!dateStr) return true;
   const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
   if (!dateRegex.test(dateStr)) return false;
   const date = new Date(dateStr);
   return !isNaN(date.getTime());
 }
 
-// Sign and issue credential (for owner issuer)
+// Sign and issue credential - stores in database with RLS protection
 export async function signAndIssueCredential(
   privateKey: string,
   citizenAddress: string,
+  citizenUserId: string,
   credentialData: {
     fullName: string;
     dateOfBirth: string;
@@ -180,45 +180,75 @@ export async function signAndIssueCredential(
     }
 
     const wallet = new ethers.Wallet(privateKey);
-    
+
     // Check for duplicate face BEFORE issuing
     let faceDescriptorHash: string | undefined;
     if (credentialData.faceDescriptor && credentialData.faceDescriptor.length > 0) {
-      const duplicateCheck = checkDuplicateFace(credentialData.faceDescriptor);
-      if (duplicateCheck.isDuplicate) {
-        return { 
-          success: false, 
-          error: `Duplicate detected: ${duplicateCheck.message}. This person cannot be issued another credential.`
+      faceDescriptorHash = hashFaceDescriptor(credentialData.faceDescriptor);
+      
+      const isDuplicate = await checkDuplicateFaceHash(faceDescriptorHash);
+      if (isDuplicate) {
+        return {
+          success: false,
+          error: 'Duplicate face detected. This person already has a credential issued.'
         };
       }
-      // Store only the hash, not the raw descriptor
-      faceDescriptorHash = getFaceDescriptorHash(credentialData.faceDescriptor);
     }
-    
+
     // Check if this wallet already has a credential
-    const existing = getCredentialForCitizen(citizenAddress);
-    if (existing) {
+    const existingCredential = await checkCredentialExistsForAddress(citizenAddress);
+    if (existingCredential) {
       return {
         success: false,
         error: 'This wallet address already has a credential issued.'
       };
     }
-    
+
+    // Get current user (issuer)
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return { success: false, error: 'Not authenticated' };
+    }
+
     // Create credential hash
     const dataToHash = JSON.stringify({
       citizenAddress,
-      fullName: credentialData.fullName.trim(),
+      fullName: sanitizedName,
       dateOfBirth: credentialData.dateOfBirth,
-      nationalId: credentialData.nationalId.trim(),
+      nationalId: sanitizedNationalId,
       expiryDate: credentialData.expiryDate,
       issuer: wallet.address,
       issuedAt: Date.now()
     });
     const credentialHash = ethers.keccak256(ethers.toUtf8Bytes(dataToHash));
-    
+
     // Sign the credential hash
     const signature = await wallet.signMessage(ethers.getBytes(credentialHash));
-    
+
+    // Store credential in database
+    const { data, error } = await supabase
+      .from('credentials')
+      .insert({
+        citizen_user_id: citizenUserId,
+        citizen_address: citizenAddress,
+        issuer_user_id: user.id,
+        issuer_address: wallet.address,
+        credential_hash: credentialHash,
+        signature: signature,
+        full_name: sanitizedName,
+        date_of_birth: credentialData.dateOfBirth || null,
+        national_id: sanitizedNationalId,
+        expiry_date: credentialData.expiryDate || null,
+        face_descriptor_hash: faceDescriptorHash || null,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error storing credential:', error);
+      return { success: false, error: error.message || 'Failed to store credential' };
+    }
+
     const credential: StoredCredential = {
       citizenAddress,
       credentialHash,
@@ -231,9 +261,7 @@ export async function signAndIssueCredential(
       expiryDate: credentialData.expiryDate,
       faceDescriptorHash,
     };
-    
-    saveCredential(credential);
-    
+
     return { success: true, credential };
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Failed to issue credential';
@@ -241,54 +269,173 @@ export async function signAndIssueCredential(
   }
 }
 
-// Verify a credential signature
+// Verify credential response type
+interface VerifyCredentialResponse {
+  isValid: boolean;
+  error?: string;
+  credential?: {
+    fullName: string;
+    nationalId: string;
+    dateOfBirth: string | null;
+    expiryDate: string | null;
+    issuerAddress: string;
+    issuedAt: string;
+    credentialHash: string;
+  };
+}
+
+// Verify a credential by citizen address (public verification via RPC)
+export async function verifyCredentialForCitizen(citizenAddress: string): Promise<{
+  isValid: boolean;
+  credential?: StoredCredential;
+  error?: string;
+}> {
+  try {
+    const { data, error } = await supabase.rpc('verify_credential', {
+      _citizen_address: citizenAddress
+    });
+
+    if (error) {
+      console.error('Error verifying credential:', error);
+      return { isValid: false, error: 'Verification failed' };
+    }
+
+    const response = data as unknown as VerifyCredentialResponse;
+
+    if (!response || !response.isValid) {
+      return { 
+        isValid: false, 
+        error: response?.error || 'No credential found for this address',
+        credential: response?.credential ? {
+          citizenAddress,
+          credentialHash: response.credential.credentialHash,
+          signature: '',
+          issuerAddress: response.credential.issuerAddress,
+          issuedAt: new Date(response.credential.issuedAt).getTime(),
+          fullName: response.credential.fullName,
+          dateOfBirth: response.credential.dateOfBirth || '',
+          nationalId: response.credential.nationalId,
+          expiryDate: response.credential.expiryDate || '',
+        } : undefined
+      };
+    }
+
+    return {
+      isValid: true,
+      credential: {
+        citizenAddress,
+        credentialHash: response.credential!.credentialHash,
+        signature: '',
+        issuerAddress: response.credential!.issuerAddress,
+        issuedAt: new Date(response.credential!.issuedAt).getTime(),
+        fullName: response.credential!.fullName,
+        dateOfBirth: response.credential!.dateOfBirth || '',
+        nationalId: response.credential!.nationalId,
+        expiryDate: response.credential!.expiryDate || '',
+      }
+    };
+  } catch (error) {
+    console.error('Error verifying credential:', error);
+    return { isValid: false, error: 'Verification failed' };
+  }
+}
+
+// Get credential for the current user (their own credential)
+export async function getMyCredential(): Promise<StoredCredential | null> {
+  try {
+    const { data, error } = await supabase
+      .from('credentials')
+      .select('*')
+      .limit(1)
+      .single();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return toStoredCredential(data as DatabaseCredential);
+  } catch (error) {
+    console.error('Error fetching credential:', error);
+    return null;
+  }
+}
+
+// Get credential for a specific citizen (admin only - for verification)
+export async function getCredentialForCitizen(citizenAddress: string): Promise<StoredCredential | null> {
+  try {
+    const { data, error } = await supabase
+      .from('credentials')
+      .select('*')
+      .eq('citizen_address', citizenAddress)
+      .limit(1)
+      .single();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return toStoredCredential(data as DatabaseCredential);
+  } catch (error) {
+    console.error('Error fetching credential:', error);
+    return null;
+  }
+}
+
+// Verify credential signature client-side (for display purposes)
 export function verifyCredentialSignature(credential: StoredCredential): boolean {
   try {
+    if (!credential.signature) {
+      return true; // Signature not available in public view, trust server verification
+    }
+    
     const recoveredAddress = ethers.verifyMessage(
       ethers.getBytes(credential.credentialHash),
       credential.signature
     );
-    
-    // Check if signed by owner or the stored issuer
-    return (
-      recoveredAddress.toLowerCase() === OWNER_ISSUER_ADDRESS.toLowerCase() ||
-      recoveredAddress.toLowerCase() === credential.issuerAddress.toLowerCase()
-    );
+
+    return recoveredAddress.toLowerCase() === credential.issuerAddress.toLowerCase();
   } catch {
     return false;
   }
 }
 
-// Verify credential for a citizen address
-export function verifyCredentialForCitizen(citizenAddress: string): {
-  isValid: boolean;
-  credential?: StoredCredential;
-  error?: string;
-} {
-  const credential = getCredentialForCitizen(citizenAddress);
-  
-  if (!credential) {
-    return { isValid: false, error: 'No credential found for this address' };
-  }
-  
-  // Check expiry
-  if (credential.expiryDate) {
-    const expiryDate = new Date(credential.expiryDate);
-    if (expiryDate < new Date()) {
-      return { isValid: false, credential, error: 'Credential has expired' };
+// Get total credentials count (for admins)
+export async function getTotalCredentialsCount(): Promise<number> {
+  try {
+    const { count, error } = await supabase
+      .from('credentials')
+      .select('*', { count: 'exact', head: true });
+
+    if (error) {
+      console.error('Error counting credentials:', error);
+      return 0;
     }
+
+    return count || 0;
+  } catch (error) {
+    console.error('Error counting credentials:', error);
+    return 0;
   }
-  
-  // Verify signature
-  const signatureValid = verifyCredentialSignature(credential);
-  if (!signatureValid) {
-    return { isValid: false, credential, error: 'Invalid signature' };
-  }
-  
-  return { isValid: true, credential };
 }
 
-// Get total issued credentials count
-export function getTotalCredentialsCount(): number {
-  return getStoredCredentials().length;
+// Get all existing face hashes (for duplicate detection during issuance)
+export async function getExistingFaceHashes(): Promise<string[]> {
+  try {
+    const { data, error } = await supabase
+      .from('credentials')
+      .select('face_descriptor_hash')
+      .not('face_descriptor_hash', 'is', null);
+
+    if (error) {
+      console.error('Error fetching face hashes:', error);
+      return [];
+    }
+
+    return (data || [])
+      .map(c => c.face_descriptor_hash)
+      .filter((hash): hash is string => hash !== null);
+  } catch (error) {
+    console.error('Error fetching face hashes:', error);
+    return [];
+  }
 }
