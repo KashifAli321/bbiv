@@ -78,6 +78,24 @@ export async function checkDuplicateFaceHash(faceHash: string): Promise<boolean>
   }
 }
 
+// Check if a similar face already exists in credentials using Euclidean distance
+export async function checkDuplicateFaceSimilarity(descriptor: number[]): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc('check_credential_face_similarity', {
+      _descriptor: descriptor,
+      _threshold: 0.6
+    });
+    if (error) {
+      console.error('Error checking face similarity:', error);
+      return false;
+    }
+    return data === true;
+  } catch (error) {
+    console.error('Error checking face similarity:', error);
+    return false;
+  }
+}
+
 // Check if a credential exists for an address (server-side check)
 export async function checkCredentialExistsForAddress(address: string): Promise<boolean> {
   try {
@@ -181,16 +199,17 @@ export async function signAndIssueCredential(
 
     const wallet = new ethers.Wallet(privateKey);
 
-    // Check for duplicate face BEFORE issuing
+    // Check for duplicate face BEFORE issuing using similarity check
     let faceDescriptorHash: string | undefined;
     if (credentialData.faceDescriptor && credentialData.faceDescriptor.length > 0) {
       faceDescriptorHash = hashFaceDescriptor(credentialData.faceDescriptor);
       
-      const isDuplicate = await checkDuplicateFaceHash(faceDescriptorHash);
-      if (isDuplicate) {
+      // Use similarity-based duplicate detection (Euclidean distance)
+      const isSimilar = await checkDuplicateFaceSimilarity(credentialData.faceDescriptor);
+      if (isSimilar) {
         return {
           success: false,
-          error: 'Duplicate face detected. This person already has a credential issued.'
+          error: 'A similar face is already registered. This person may already have a credential issued.'
         };
       }
     }
@@ -225,7 +244,7 @@ export async function signAndIssueCredential(
     // Sign the credential hash
     const signature = await wallet.signMessage(ethers.getBytes(credentialHash));
 
-    // Store credential in database
+    // Store credential in database (with both hash and descriptor)
     const { data, error } = await supabase
       .from('credentials')
       .insert({
@@ -240,6 +259,7 @@ export async function signAndIssueCredential(
         national_id: sanitizedNationalId,
         expiry_date: credentialData.expiryDate || null,
         face_descriptor_hash: faceDescriptorHash || null,
+        face_descriptor: credentialData.faceDescriptor || null,
       })
       .select()
       .single();

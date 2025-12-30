@@ -22,7 +22,7 @@ export default function FaceRegisterPage() {
     isLoading: authLoading, 
     profile, 
     updateProfile,
-    checkFaceHashExists,
+    checkFaceSimilarity,
     setFaceVerified,
     signOut 
   } = useAuth();
@@ -59,18 +59,19 @@ export default function FaceRegisterPage() {
     try {
       const faceHash = hashFaceDescriptor(faceDescriptor);
 
-      // Check if this face is already registered
-      const faceExists = await checkFaceHashExists(faceHash);
-      if (faceExists) {
-        setError('This face is already registered with another account. Multi-account registration is not allowed.');
+      // Check if a similar face is already registered using Euclidean distance
+      const similarFaceExists = await checkFaceSimilarity(faceDescriptor);
+      if (similarFaceExists) {
+        setError('A similar face is already registered with another account. Multi-account registration is not allowed.');
         setShowCamera(false);
         setIsRegistering(false);
         return;
       }
 
-      // Update profile with face hash
+      // Update profile with both face hash and descriptor for future similarity checks
       const { error: updateError } = await updateProfile({
-        face_descriptor_hash: faceHash
+        face_descriptor_hash: faceHash,
+        face_descriptor: faceDescriptor
       });
 
       if (updateError) {
