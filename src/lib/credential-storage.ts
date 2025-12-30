@@ -95,6 +95,36 @@ export function getFaceDescriptorHash(descriptor: number[]): string {
   return hashFaceDescriptor(descriptor);
 }
 
+// Sanitize string input - remove potentially dangerous characters
+function sanitizeInput(input: string): string {
+  return input
+    .trim()
+    .replace(/[<>]/g, '') // Remove angle brackets to prevent HTML injection
+    .replace(/[\x00-\x1F\x7F]/g, ''); // Remove control characters
+}
+
+// Validate name format - allows letters, spaces, hyphens, apostrophes, and common international characters
+function isValidName(name: string): boolean {
+  // Allow Unicode letters, spaces, hyphens, apostrophes
+  const nameRegex = /^[\p{L}\s\-'\.]+$/u;
+  return nameRegex.test(name) && name.length >= 1 && name.length <= 100;
+}
+
+// Validate national ID format - alphanumeric with common separators
+function isValidNationalId(id: string): boolean {
+  const idRegex = /^[\w\-\.\/]+$/;
+  return idRegex.test(id) && id.length >= 1 && id.length <= 50;
+}
+
+// Validate date format (YYYY-MM-DD)
+function isValidDateFormat(dateStr: string): boolean {
+  if (!dateStr) return true; // Optional dates are OK
+  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+  if (!dateRegex.test(dateStr)) return false;
+  const date = new Date(dateStr);
+  return !isNaN(date.getTime());
+}
+
 // Sign and issue credential (for owner issuer)
 export async function signAndIssueCredential(
   privateKey: string,
@@ -113,17 +143,39 @@ export async function signAndIssueCredential(
       return { success: false, error: 'Invalid Ethereum address format' };
     }
 
+    // Sanitize inputs
+    const sanitizedName = sanitizeInput(credentialData.fullName);
+    const sanitizedNationalId = sanitizeInput(credentialData.nationalId);
+
     // Validate required fields
-    if (!credentialData.fullName?.trim()) {
+    if (!sanitizedName) {
       return { success: false, error: 'Full name is required' };
     }
-    if (!credentialData.nationalId?.trim()) {
+    if (!sanitizedNationalId) {
       return { success: false, error: 'National ID is required' };
     }
-    if (credentialData.fullName.length > 100) {
+
+    // Validate format
+    if (!isValidName(sanitizedName)) {
+      return { success: false, error: 'Invalid name format. Use letters, spaces, hyphens, or apostrophes only.' };
+    }
+    if (!isValidNationalId(sanitizedNationalId)) {
+      return { success: false, error: 'Invalid National ID format. Use alphanumeric characters and hyphens only.' };
+    }
+
+    // Validate dates if provided
+    if (credentialData.dateOfBirth && !isValidDateFormat(credentialData.dateOfBirth)) {
+      return { success: false, error: 'Invalid date of birth format. Use YYYY-MM-DD.' };
+    }
+    if (credentialData.expiryDate && !isValidDateFormat(credentialData.expiryDate)) {
+      return { success: false, error: 'Invalid expiry date format. Use YYYY-MM-DD.' };
+    }
+
+    // Length validation
+    if (sanitizedName.length > 100) {
       return { success: false, error: 'Full name must be less than 100 characters' };
     }
-    if (credentialData.nationalId.length > 50) {
+    if (sanitizedNationalId.length > 50) {
       return { success: false, error: 'National ID must be less than 50 characters' };
     }
 
@@ -173,9 +225,9 @@ export async function signAndIssueCredential(
       signature,
       issuerAddress: wallet.address,
       issuedAt: Date.now(),
-      fullName: credentialData.fullName.trim(),
+      fullName: sanitizedName,
       dateOfBirth: credentialData.dateOfBirth,
-      nationalId: credentialData.nationalId.trim(),
+      nationalId: sanitizedNationalId,
       expiryDate: credentialData.expiryDate,
       faceDescriptorHash,
     };
