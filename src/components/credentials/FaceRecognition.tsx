@@ -9,9 +9,10 @@ import { ethers } from 'ethers';
 interface FaceRecognitionProps {
   onVerified: (verified: boolean, faceDescriptor?: number[]) => void;
   isRequired?: boolean;
-  mode?: 'capture' | 'verify';
+  mode?: 'capture' | 'verify' | 'register';
   checkDuplicate?: boolean;
   existingFaceHashes?: string[];
+  requireLiveness?: boolean;
 }
 
 // Hash a face descriptor for secure comparison
@@ -25,7 +26,8 @@ export function FaceRecognition({
   isRequired = true,
   mode = 'capture',
   checkDuplicate = false,
-  existingFaceHashes = []
+  existingFaceHashes = [],
+  requireLiveness = false
 }: FaceRecognitionProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -179,12 +181,14 @@ export function FaceRecognition({
           </div>
           <div>
             <CardTitle className="text-lg">
-              {mode === 'capture' ? 'Face Capture' : 'Face Verification'}
+              {mode === 'register' ? 'Face Registration' : mode === 'verify' ? 'Face Verification' : 'Face Capture'}
             </CardTitle>
             <CardDescription>
-              {mode === 'capture' 
-                ? 'Capture face for identity - one person per credential' 
-                : 'Verify your identity'}
+              {mode === 'register' 
+                ? 'Register your face for secure authentication'
+                : mode === 'verify'
+                ? 'Verify your identity'
+                : 'Capture face for identity - one person per credential'}
             </CardDescription>
           </div>
         </div>
