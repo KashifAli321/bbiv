@@ -14,6 +14,60 @@ export type Database = {
   }
   public: {
     Tables: {
+      credentials: {
+        Row: {
+          citizen_address: string
+          citizen_user_id: string
+          created_at: string
+          credential_hash: string
+          date_of_birth: string | null
+          expiry_date: string | null
+          face_descriptor_hash: string | null
+          full_name: string
+          id: string
+          issued_at: string
+          issuer_address: string
+          issuer_user_id: string
+          national_id: string
+          signature: string
+          updated_at: string
+        }
+        Insert: {
+          citizen_address: string
+          citizen_user_id: string
+          created_at?: string
+          credential_hash: string
+          date_of_birth?: string | null
+          expiry_date?: string | null
+          face_descriptor_hash?: string | null
+          full_name: string
+          id?: string
+          issued_at?: string
+          issuer_address: string
+          issuer_user_id: string
+          national_id: string
+          signature: string
+          updated_at?: string
+        }
+        Update: {
+          citizen_address?: string
+          citizen_user_id?: string
+          created_at?: string
+          credential_hash?: string
+          date_of_birth?: string | null
+          expiry_date?: string | null
+          face_descriptor_hash?: string | null
+          full_name?: string
+          id?: string
+          issued_at?: string
+          issuer_address?: string
+          issuer_user_id?: string
+          national_id?: string
+          signature?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -70,6 +124,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      credential_exists_for_address: {
+        Args: { _address: string }
+        Returns: boolean
+      }
+      credential_face_hash_exists: { Args: { _hash: string }; Returns: boolean }
       face_hash_exists: { Args: { _hash: string }; Returns: boolean }
       has_role: {
         Args: {
@@ -78,7 +137,9 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_authorized_issuer: { Args: { _user_id?: string }; Returns: boolean }
       username_exists: { Args: { _username: string }; Returns: boolean }
+      verify_credential: { Args: { _citizen_address: string }; Returns: Json }
       wallet_address_exists: { Args: { _address: string }; Returns: boolean }
     }
     Enums: {

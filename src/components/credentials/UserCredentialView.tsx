@@ -1,28 +1,26 @@
 import { useState, useEffect } from 'react';
-import { Shield, Copy, ExternalLink, User, Calendar, CreditCard, CheckCircle } from 'lucide-react';
+import { Shield, Copy, User, Calendar, CreditCard, CheckCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useWallet } from '@/contexts/WalletContext';
-import { truncateAddress } from '@/lib/wallet';
 import { useToast } from '@/hooks/use-toast';
-import { getCredentialForCitizen, StoredCredential, verifyCredentialSignature } from '@/lib/credential-storage';
-import { OWNER_ISSUER_ADDRESS } from '@/lib/issuer-config';
+import { getMyCredential, StoredCredential, verifyCredentialSignature } from '@/lib/credential-storage';
 import { QRCodeButton } from '@/components/wallet/QRCodeDisplay';
 
 export function UserCredentialView() {
-  const { address, network } = useWallet();
+  const { address } = useWallet();
   const { toast } = useToast();
   const [credential, setCredential] = useState<StoredCredential | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isValid, setIsValid] = useState(false);
 
-  const fetchCredential = () => {
+  const fetchCredential = async () => {
     if (!address) return;
     
     setIsLoading(true);
     try {
-      const cred = getCredentialForCitizen(address);
+      const cred = await getMyCredential();
       setCredential(cred);
       
       if (cred) {
@@ -182,9 +180,6 @@ export function UserCredentialView() {
                   <p className="text-xs text-muted-foreground mb-1">Issued By</p>
                   <p className="font-mono text-xs break-all">
                     {credential.issuerAddress}
-                    {credential.issuerAddress.toLowerCase() === OWNER_ISSUER_ADDRESS.toLowerCase() && (
-                      <span className="ml-2 text-primary">(Official Issuer)</span>
-                    )}
                   </p>
                 </div>
                 

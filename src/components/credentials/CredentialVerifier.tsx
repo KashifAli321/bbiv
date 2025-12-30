@@ -9,7 +9,6 @@ import { useWallet } from '@/contexts/WalletContext';
 import { QRCodeButton } from '@/components/wallet/QRCodeDisplay';
 import { addTransaction } from '@/components/wallet/TransactionHistory';
 import { verifyCredentialForCitizen, StoredCredential } from '@/lib/credential-storage';
-import { OWNER_ISSUER_ADDRESS } from '@/lib/issuer-config';
 
 type VerificationResult = 'pending' | 'valid' | 'invalid' | 'expired' | 'error';
 
@@ -38,10 +37,7 @@ export function CredentialVerifier() {
     setCredential(null);
 
     try {
-      // Small delay to show loading state
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      const result = verifyCredentialForCitizen(citizenAddress);
+      const result = await verifyCredentialForCitizen(citizenAddress);
       
       if (result.isValid && result.credential) {
         setVerificationResult('valid');
@@ -253,9 +249,6 @@ export function CredentialVerifier() {
                     <p className="text-xs text-muted-foreground mb-1">Issued By</p>
                     <p className="font-mono text-xs break-all">
                       {credential.issuerAddress}
-                      {credential.issuerAddress.toLowerCase() === OWNER_ISSUER_ADDRESS.toLowerCase() && (
-                        <span className="ml-2 text-primary">(Owner)</span>
-                      )}
                     </p>
                     <p className="text-xs text-muted-foreground mt-2">
                       Issued on {formatDate(credential.issuedAt)}

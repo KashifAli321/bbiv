@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { FileCheck, Shield, AlertTriangle, CheckCircle2, Lock } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,14 +8,17 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useWallet } from '@/contexts/WalletContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { FaceRecognition } from './FaceRecognition';
 import { addTransaction } from '@/components/wallet/TransactionHistory';
-import { isAuthorizedIssuer, getIssuerStatus, OWNER_ISSUER_ADDRESS } from '@/lib/issuer-config';
-import { signAndIssueCredential, getStoredCredentials, getFaceDescriptorHash } from '@/lib/credential-storage';
+import { getIssuerStatus, isAuthorizedIssuer } from '@/lib/issuer-config';
+import { signAndIssueCredential, getExistingFaceHashes } from '@/lib/credential-storage';
+import { supabase } from '@/integrations/supabase/client';
 import { ethers } from 'ethers';
 
 export function CredentialIssuer() {
   const { privateKey, address, network } = useWallet();
+  const { user } = useAuth();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [issuedSuccessfully, setIssuedSuccessfully] = useState(false);
@@ -23,6 +26,11 @@ export function CredentialIssuer() {
   const [capturedFaceDescriptor, setCapturedFaceDescriptor] = useState<number[] | null>(null);
   const [showFaceCapture, setShowFaceCapture] = useState(false);
   const [addressError, setAddressError] = useState<string | null>(null);
+  const [issuerStatus, setIssuerStatus] = useState<{ authorized: boolean; message: string }>({
+    authorized: false,
+    message: 'Checking authorization...'
+  });
+  const [existingFaceHashes, setExistingFaceHashes] = useState<string[]>([]);
   
   const [formData, setFormData] = useState({
     citizenAddress: '',
@@ -32,22 +40,45 @@ export function CredentialIssuer() {
     expiryDate: '',
   });
 
-  const issuerStatus = address ? getIssuerStatus(address) : { authorized: false, message: 'Connect wallet' };
-  const isOwner = address?.toLowerCase() === OWNER_ISSUER_ADDRESS.toLowerCase();
+  // Check issuer authorization on mount and when user changes
+  useEffect(() => {
+    const checkAuthorization = async () => {
+      const status = await getIssuerStatus();
+      setIssuerStatus(status);
+    };
+    checkAuthorization();
+  }, [user]);
 
-  // Get all existing face descriptor hashes for duplicate detection
-  const existingFaceHashes = useMemo(() => {
-    const credentials = getStoredCredentials();
-    return credentials
-      .filter(c => c.faceDescriptorHash)
-      .map(c => c.faceDescriptorHash as string);
-  }, []);
+  // Load existing face hashes for duplicate detection
+  useEffect(() => {
+    const loadFaceHashes = async () => {
+      if (issuerStatus.authorized) {
+        const hashes = await getExistingFaceHashes();
+        setExistingFaceHashes(hashes);
+      }
+    };
+    loadFaceHashes();
+  }, [issuerStatus.authorized]);
 
   const handleFaceVerified = (verified: boolean, faceDescriptor?: number[]) => {
     setFaceVerified(verified);
     if (faceDescriptor) {
       setCapturedFaceDescriptor(faceDescriptor);
     }
+  };
+
+  // Look up citizen user ID by wallet address
+  const findCitizenUserId = async (citizenAddress: string): Promise<string | null> => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('user_id')
+      .eq('wallet_address', citizenAddress)
+      .single();
+    
+    if (error || !data) {
+      return null;
+    }
+    return data.user_id;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -62,10 +93,11 @@ export function CredentialIssuer() {
       return;
     }
 
-    if (!isAuthorizedIssuer(address)) {
+    const isAuthorized = await isAuthorizedIssuer();
+    if (!isAuthorized) {
       toast({
         title: 'Not Authorized',
-        description: 'You need to deploy your own contract to become an issuer',
+        description: 'You are not authorized to issue credentials',
         variant: 'destructive',
       });
       return;
@@ -100,6 +132,17 @@ export function CredentialIssuer() {
       return;
     }
 
+    // Find the citizen's user ID
+    const citizenUserId = await findCitizenUserId(formData.citizenAddress);
+    if (!citizenUserId) {
+      toast({
+        title: 'Citizen Not Found',
+        description: 'No user found with this wallet address. The citizen must register and link their wallet first.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsLoading(true);
     setIssuedSuccessfully(false);
 
@@ -107,6 +150,7 @@ export function CredentialIssuer() {
       const result = await signAndIssueCredential(
         privateKey,
         formData.citizenAddress,
+        citizenUserId,
         {
           fullName: formData.fullName,
           dateOfBirth: formData.dateOfBirth,
@@ -143,6 +187,9 @@ export function CredentialIssuer() {
           nationalId: '',
           expiryDate: '',
         });
+        setFaceVerified(false);
+        setCapturedFaceDescriptor(null);
+        setShowFaceCapture(false);
       } else {
         toast({
           title: 'Issuance Failed',
@@ -183,8 +230,8 @@ export function CredentialIssuer() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {isOwner && (
-                <Badge variant="default" className="bg-primary">Owner</Badge>
+              {issuerStatus.authorized && (
+                <Badge variant="default" className="bg-primary">Admin</Badge>
               )}
               <Badge variant={issuerStatus.authorized ? 'default' : 'secondary'}>
                 {issuerStatus.authorized ? 'Authorized' : 'Not Authorized'}
@@ -192,14 +239,14 @@ export function CredentialIssuer() {
             </div>
           </div>
           
-          {!issuerStatus.authorized && address && (
+          {!issuerStatus.authorized && user && (
             <div className="mt-4 p-3 rounded-lg bg-destructive/10 border border-destructive/30">
               <div className="flex items-center gap-2 text-destructive">
                 <Lock className="w-4 h-4" />
                 <span className="text-sm font-medium">Access Restricted</span>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                Only the project owner can issue credentials
+                Only administrators can issue credentials
               </p>
             </div>
           )}
@@ -245,7 +292,7 @@ export function CredentialIssuer() {
               <Lock className="h-4 w-4" />
               <AlertTitle>Access Restricted</AlertTitle>
               <AlertDescription>
-                Only the project owner can issue credentials. This wallet is not authorized to issue credentials.
+                Only administrators can issue credentials. Contact your administrator for access.
               </AlertDescription>
             </Alert>
           ) : (
@@ -370,7 +417,7 @@ export function CredentialIssuer() {
                   <CheckCircle2 className="h-4 w-4 text-green-500" />
                   <AlertTitle className="text-green-500">Credential Issued Successfully!</AlertTitle>
                   <AlertDescription>
-                    The credential has been signed with your private key and stored securely.
+                    The credential has been signed and stored securely in the database.
                     The user can now view their credential on the User page.
                   </AlertDescription>
                 </Alert>
