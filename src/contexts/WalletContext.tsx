@@ -20,7 +20,10 @@ interface WalletContextType {
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
+// SECURITY: Use sessionStorage instead of localStorage for private keys
+// Keys are cleared when the browser tab/window is closed
 const STORAGE_KEY = 'blockchain_identity_wallet';
+const SECURITY_WARNING_SHOWN_KEY = 'security_warning_acknowledged';
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [address, setAddress] = useState<string | null>(null);
@@ -30,9 +33,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [balances, setBalances] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
 
-  // Load wallet from storage on mount
+  // Load wallet from session storage on mount (not localStorage for security)
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = sessionStorage.getItem(STORAGE_KEY);
     if (stored) {
       try {
         const data = JSON.parse(stored);
@@ -45,14 +48,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         }
       } catch (e) {
         console.error('Failed to load wallet from storage');
+        sessionStorage.removeItem(STORAGE_KEY);
       }
     }
   }, []);
 
-  // Save wallet to storage
+  // Save wallet to session storage (cleared when browser closes)
   useEffect(() => {
     if (address && privateKey) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
         address,
         privateKey,
         networkId: network.id,
@@ -121,7 +125,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setPrivateKey(null);
     setBalance('0');
     setBalances({});
-    localStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(STORAGE_KEY);
   };
 
   return (
