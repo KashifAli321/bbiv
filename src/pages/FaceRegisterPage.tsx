@@ -58,9 +58,14 @@ export default function FaceRegisterPage() {
 
     try {
       const faceHash = hashFaceDescriptor(faceDescriptor);
+      console.log('Face hash generated:', faceHash.slice(0, 20) + '...');
+      console.log('Face descriptor length:', faceDescriptor.length);
 
       // Check if a similar face is already registered using Euclidean distance
+      console.log('Checking face similarity...');
       const similarFaceExists = await checkFaceSimilarity(faceDescriptor);
+      console.log('Similar face exists:', similarFaceExists);
+      
       if (similarFaceExists) {
         setError('A similar face is already registered with another account. Multi-account registration is not allowed.');
         setShowCamera(false);
@@ -69,10 +74,13 @@ export default function FaceRegisterPage() {
       }
 
       // Update profile with both face hash and descriptor for future similarity checks
+      console.log('Updating profile with face data...');
       const { error: updateError } = await updateProfile({
         face_descriptor_hash: faceHash,
         face_descriptor: faceDescriptor
-      });
+      } as any);
+
+      console.log('Update result - error:', updateError);
 
       if (updateError) {
         setError(updateError.message || 'Failed to register face. Please try again.');
