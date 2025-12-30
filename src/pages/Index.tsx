@@ -65,8 +65,11 @@ export default function Index() {
     <div className="container mx-auto px-4">
       {/* Welcome Message */}
       <section className="text-center py-8">
-        <Card className="border-primary/30 bg-primary/5">
-          <CardContent className="pt-6">
+        <Card className="border-primary/30 bg-primary/5 animate-fade-in hover-scale">
+          <CardContent className="pt-6 flex flex-col items-center">
+            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center mb-4 animate-scale-in">
+              <Shield className="w-10 h-10 text-primary-foreground" />
+            </div>
             <h2 className="text-2xl font-bold text-primary mb-2">Welcome to BlockID</h2>
             <p className="text-muted-foreground">
               <span className="font-semibold">Complete Name:</span> Blockchain Based Identity Verification
