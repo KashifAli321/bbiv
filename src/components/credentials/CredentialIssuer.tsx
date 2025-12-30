@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { FileCheck, Shield, AlertTriangle, CheckCircle2, Lock } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import { useWallet } from '@/contexts/WalletContext';
 import { FaceRecognition } from './FaceRecognition';
 import { addTransaction } from '@/components/wallet/TransactionHistory';
 import { isAuthorizedIssuer, getIssuerStatus, OWNER_ISSUER_ADDRESS } from '@/lib/issuer-config';
-import { signAndIssueCredential } from '@/lib/credential-storage';
+import { signAndIssueCredential, getStoredCredentials } from '@/lib/credential-storage';
 
 export function CredentialIssuer() {
   const { privateKey, address, network } = useWallet();
@@ -20,6 +20,7 @@ export function CredentialIssuer() {
   const [issuedSuccessfully, setIssuedSuccessfully] = useState(false);
   const [faceVerified, setFaceVerified] = useState(false);
   const [capturedFaceDescriptor, setCapturedFaceDescriptor] = useState<number[] | null>(null);
+  const [capturedFaceImage, setCapturedFaceImage] = useState<string | null>(null);
   const [showFaceCapture, setShowFaceCapture] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -33,15 +34,21 @@ export function CredentialIssuer() {
   const issuerStatus = address ? getIssuerStatus(address) : { authorized: false, message: 'Connect wallet' };
   const isOwner = address?.toLowerCase() === OWNER_ISSUER_ADDRESS.toLowerCase();
 
-  const handleFaceVerified = (verified: boolean, faceData?: string) => {
+  // Get all existing face descriptors for duplicate detection
+  const existingFaceDescriptors = useMemo(() => {
+    const credentials = getStoredCredentials();
+    return credentials
+      .filter(c => c.faceDescriptor && c.faceDescriptor.length > 0)
+      .map(c => c.faceDescriptor as number[]);
+  }, []);
+
+  const handleFaceVerified = (verified: boolean, faceDescriptor?: number[], faceImage?: string) => {
     setFaceVerified(verified);
-    if (faceData) {
-      try {
-        const descriptor = JSON.parse(faceData);
-        setCapturedFaceDescriptor(descriptor);
-      } catch {
-        // Face data might not be JSON
-      }
+    if (faceDescriptor) {
+      setCapturedFaceDescriptor(faceDescriptor);
+    }
+    if (faceImage) {
+      setCapturedFaceImage(faceImage);
     }
   };
 
@@ -98,6 +105,7 @@ export function CredentialIssuer() {
           nationalId: formData.nationalId,
           expiryDate: formData.expiryDate,
           faceDescriptor: capturedFaceDescriptor || undefined,
+          faceImage: capturedFaceImage || undefined,
         }
       );
 
@@ -197,6 +205,8 @@ export function CredentialIssuer() {
           onVerified={handleFaceVerified}
           isRequired={true}
           mode="capture"
+          checkDuplicate={true}
+          existingDescriptors={existingFaceDescriptors}
         />
       )}
 
