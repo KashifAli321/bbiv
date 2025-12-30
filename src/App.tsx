@@ -7,6 +7,7 @@ import { WalletProvider } from "@/contexts/WalletContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { Layout } from "@/components/layout/Layout";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { AdminRoute } from "@/components/auth/AdminRoute";
 import Index from "./pages/Index";
 import UserPage from "./pages/UserPage";
 import IssuerPage from "./pages/IssuerPage";
@@ -50,7 +51,9 @@ const App = () => (
               } />
               <Route path="/issuer" element={
                 <ProtectedRoute>
-                  <Layout><IssuerPage /></Layout>
+                  <AdminRoute>
+                    <Layout><IssuerPage /></Layout>
+                  </AdminRoute>
                 </ProtectedRoute>
               } />
               <Route path="/verifier" element={
