@@ -2,7 +2,7 @@
 
 ## Project info
 
-**URL**: bbiv.lovable.app
+**URL**: https://bbiv.lovable.app/
 
 ## How can I edit this code?
 
