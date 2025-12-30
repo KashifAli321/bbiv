@@ -5,8 +5,8 @@ import { Button } from '@/components/ui/button';
 import { useWallet } from '@/contexts/WalletContext';
 import { truncateAddress, formatBalance } from '@/lib/wallet';
 import { NetworkSelector } from './NetworkSelector';
+import { QRCodeButton } from './QRCodeDisplay';
 import { useToast } from '@/hooks/use-toast';
-
 export function WalletCard() {
   const { address, privateKey, network, balance, isLoading, refreshBalance } = useWallet();
   const [showPrivateKey, setShowPrivateKey] = useState(false);
@@ -45,6 +45,12 @@ export function WalletCard() {
           <label className="text-sm text-muted-foreground">Address</label>
           <div className="flex items-center gap-2 p-3 rounded-lg bg-secondary">
             <span className="font-mono text-sm flex-1 truncate">{address}</span>
+            <QRCodeButton 
+              value={address} 
+              title="Wallet Address QR Code" 
+              buttonText="" 
+              buttonVariant="ghost"
+            />
             <Button
               variant="ghost"
               size="icon"

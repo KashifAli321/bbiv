@@ -8,12 +8,17 @@ import { useToast } from '@/hooks/use-toast';
 import { useWallet } from '@/contexts/WalletContext';
 import { createCredentialHash, issueCredential, CredentialData } from '@/lib/wallet';
 import { NetworkSelector } from '@/components/wallet/NetworkSelector';
+import { FaceRecognition } from './FaceRecognition';
+import { addTransaction } from '@/components/wallet/TransactionHistory';
 
 export function CredentialIssuer() {
   const { privateKey, address, network } = useWallet();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [faceVerified, setFaceVerified] = useState(false);
+  const [capturedFaceData, setCapturedFaceData] = useState<string | null>(null);
+  const [showFaceCapture, setShowFaceCapture] = useState(false);
   
   const [formData, setFormData] = useState({
     citizenAddress: '',
@@ -24,6 +29,13 @@ export function CredentialIssuer() {
     expiryDate: '',
   });
 
+  const handleFaceVerified = (verified: boolean, faceData?: string) => {
+    setFaceVerified(verified);
+    if (faceData) {
+      setCapturedFaceData(faceData);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -33,6 +45,16 @@ export function CredentialIssuer() {
         description: 'Please connect your wallet first',
         variant: 'destructive',
       });
+      return;
+    }
+
+    if (!faceVerified) {
+      toast({
+        title: 'Face Verification Required',
+        description: 'Please complete face verification before issuing credentials',
+        variant: 'destructive',
+      });
+      setShowFaceCapture(true);
       return;
     }
 
@@ -68,6 +90,18 @@ export function CredentialIssuer() {
 
       if (result.success && result.txHash) {
         setTxHash(result.txHash);
+        
+        // Add to transaction history
+        addTransaction({
+          type: 'issue',
+          txHash: result.txHash,
+          from: address || '',
+          to: formData.citizenAddress,
+          status: 'confirmed',
+          network: network.id,
+          description: `Issued credential to ${formData.fullName}`,
+        });
+
         toast({
           title: 'Credential Issued!',
           description: 'The credential has been recorded on the blockchain',
@@ -91,140 +125,178 @@ export function CredentialIssuer() {
   };
 
   return (
-    <Card className="border-border bg-card border-glow">
-      <CardHeader>
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-lg gradient-primary flex items-center justify-center">
-            <FileCheck className="w-6 h-6 text-primary-foreground" />
+    <div className="space-y-6">
+      {/* Face Verification Section */}
+      {showFaceCapture && !faceVerified && (
+        <FaceRecognition 
+          onVerified={handleFaceVerified}
+          isRequired={true}
+          mode="capture"
+        />
+      )}
+
+      <Card className="border-border bg-card border-glow">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-lg gradient-primary flex items-center justify-center">
+              <FileCheck className="w-6 h-6 text-primary-foreground" />
+            </div>
+            <div>
+              <CardTitle>Issue Credential</CardTitle>
+              <CardDescription>Issue a verifiable identity credential on the blockchain</CardDescription>
+            </div>
           </div>
-          <div>
-            <CardTitle>Issue Credential</CardTitle>
-            <CardDescription>Issue a verifiable identity credential on the blockchain</CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {!privateKey ? (
-          <div className="text-center py-8">
-            <AlertTriangle className="w-12 h-12 mx-auto text-warning mb-4" />
-            <p className="text-muted-foreground mb-4">
-              You need to connect your wallet to issue credentials
-            </p>
-            <Button onClick={() => window.location.href = '/wallet'}>
-              Connect Wallet
-            </Button>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="flex items-center justify-between mb-4">
-              <Label>Network</Label>
-              <NetworkSelector />
+        </CardHeader>
+        <CardContent>
+          {!privateKey ? (
+            <div className="text-center py-8">
+              <AlertTriangle className="w-12 h-12 mx-auto text-warning mb-4" />
+              <p className="text-muted-foreground mb-4">
+                You need to connect your wallet to issue credentials
+              </p>
+              <Button onClick={() => window.location.href = '/wallet'}>
+                Connect Wallet
+              </Button>
             </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="flex items-center justify-between mb-4">
+                <Label>Network</Label>
+                <NetworkSelector />
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="citizenAddress">Citizen Wallet Address *</Label>
-              <Input
-                id="citizenAddress"
-                placeholder="0x..."
-                value={formData.citizenAddress}
-                onChange={(e) => setFormData({ ...formData, citizenAddress: e.target.value })}
-                className="font-mono bg-secondary"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="fullName">Full Name *</Label>
-                <Input
-                  id="fullName"
-                  placeholder="John Doe"
-                  value={formData.fullName}
-                  onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                  className="bg-secondary"
-                />
+              {/* Face Verification Status */}
+              <div className="p-4 rounded-lg border border-border bg-secondary/30">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-sm">Face Verification</p>
+                    <p className="text-xs text-muted-foreground">
+                      {faceVerified ? 'Verified - Ready to issue' : 'Required before issuing'}
+                    </p>
+                  </div>
+                  {faceVerified ? (
+                    <div className="flex items-center gap-2 text-green-400">
+                      <Shield className="w-5 h-5" />
+                      <span className="text-sm font-medium">Verified</span>
+                    </div>
+                  ) : (
+                    <Button 
+                      type="button"
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => setShowFaceCapture(true)}
+                    >
+                      Verify Face
+                    </Button>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="nationalId">National ID *</Label>
+                <Label htmlFor="citizenAddress">Citizen Wallet Address *</Label>
                 <Input
-                  id="nationalId"
-                  placeholder="ID-123456789"
-                  value={formData.nationalId}
-                  onChange={(e) => setFormData({ ...formData, nationalId: e.target.value })}
-                  className="bg-secondary"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="dateOfBirth">Date of Birth</Label>
-                <Input
-                  id="dateOfBirth"
-                  type="date"
-                  value={formData.dateOfBirth}
-                  onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
-                  className="bg-secondary"
+                  id="citizenAddress"
+                  placeholder="0x..."
+                  value={formData.citizenAddress}
+                  onChange={(e) => setFormData({ ...formData, citizenAddress: e.target.value })}
+                  className="font-mono bg-secondary"
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="issuedDate">Issued Date</Label>
-                <Input
-                  id="issuedDate"
-                  type="date"
-                  value={formData.issuedDate}
-                  onChange={(e) => setFormData({ ...formData, issuedDate: e.target.value })}
-                  className="bg-secondary"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="fullName">Full Name *</Label>
+                  <Input
+                    id="fullName"
+                    placeholder="John Doe"
+                    value={formData.fullName}
+                    onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                    className="bg-secondary"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="nationalId">National ID *</Label>
+                  <Input
+                    id="nationalId"
+                    placeholder="ID-123456789"
+                    value={formData.nationalId}
+                    onChange={(e) => setFormData({ ...formData, nationalId: e.target.value })}
+                    className="bg-secondary"
+                  />
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="expiryDate">Expiry Date</Label>
-                <Input
-                  id="expiryDate"
-                  type="date"
-                  value={formData.expiryDate}
-                  onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })}
-                  className="bg-secondary"
-                />
-              </div>
-            </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="dateOfBirth">Date of Birth</Label>
+                  <Input
+                    id="dateOfBirth"
+                    type="date"
+                    value={formData.dateOfBirth}
+                    onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
+                    className="bg-secondary"
+                  />
+                </div>
 
-            <Button 
-              type="submit" 
-              className="w-full gradient-primary text-primary-foreground"
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
-                  Issuing Credential...
-                </>
-              ) : (
-                <>
-                  <Shield className="w-4 h-4 mr-2" />
-                  Issue Credential
-                </>
+                <div className="space-y-2">
+                  <Label htmlFor="issuedDate">Issued Date</Label>
+                  <Input
+                    id="issuedDate"
+                    type="date"
+                    value={formData.issuedDate}
+                    onChange={(e) => setFormData({ ...formData, issuedDate: e.target.value })}
+                    className="bg-secondary"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="expiryDate">Expiry Date</Label>
+                  <Input
+                    id="expiryDate"
+                    type="date"
+                    value={formData.expiryDate}
+                    onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })}
+                    className="bg-secondary"
+                  />
+                </div>
+              </div>
+
+              <Button 
+                type="submit" 
+                className="w-full gradient-primary text-primary-foreground"
+                disabled={isLoading || !faceVerified}
+              >
+                {isLoading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
+                    Issuing Credential...
+                  </>
+                ) : (
+                  <>
+                    <Shield className="w-4 h-4 mr-2" />
+                    Issue Credential
+                  </>
+                )}
+              </Button>
+
+              {txHash && (
+                <div className="mt-4 p-4 rounded-lg bg-green-500/10 border border-green-500/30">
+                  <p className="text-sm text-green-400 mb-2">✓ Transaction Successful!</p>
+                  <a
+                    href={`${network.blockExplorer}/tx/${txHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline text-sm font-mono break-all"
+                  >
+                    View on {network.name} Explorer
+                  </a>
+                </div>
               )}
-            </Button>
-
-            {txHash && (
-              <div className="mt-4 p-4 rounded-lg bg-green-500/10 border border-green-500/30">
-                <p className="text-sm text-green-400 mb-2">✓ Transaction Successful!</p>
-                <a
-                  href={`${network.blockExplorer}/tx/${txHash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary underline text-sm font-mono break-all"
-                >
-                  View on {network.name} Explorer
-                </a>
-              </div>
-            )}
-          </form>
-        )}
-      </CardContent>
-    </Card>
+            </form>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

@@ -8,6 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useWallet } from '@/contexts/WalletContext';
 import { WalletCard } from '@/components/wallet/WalletCard';
 import { BalanceGrid } from '@/components/wallet/BalanceGrid';
+import { FaucetInfo } from '@/components/wallet/FaucetInfo';
+import { TransactionHistory } from '@/components/wallet/TransactionHistory';
 import { useToast } from '@/hooks/use-toast';
 import { sendTransaction } from '@/lib/wallet';
 
@@ -104,91 +106,96 @@ export default function WalletPage() {
         </div>
 
         {!isConnected ? (
-          <Card className="border-border bg-card">
-            <CardHeader className="text-center">
-              <CardTitle>Connect Your Wallet</CardTitle>
-              <CardDescription>Create a new wallet or import an existing one</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Tabs defaultValue="create" className="w-full">
-                <TabsList className="grid w-full grid-cols-2 bg-secondary">
-                  <TabsTrigger value="create">Create New</TabsTrigger>
-                  <TabsTrigger value="import">Import Existing</TabsTrigger>
-                </TabsList>
+          <div className="space-y-6">
+            <Card className="border-border bg-card">
+              <CardHeader className="text-center">
+                <CardTitle>Connect Your Wallet</CardTitle>
+                <CardDescription>Create a new wallet or import an existing one</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Tabs defaultValue="create" className="w-full">
+                  <TabsList className="grid w-full grid-cols-2 bg-secondary">
+                    <TabsTrigger value="create">Create New</TabsTrigger>
+                    <TabsTrigger value="import">Import Existing</TabsTrigger>
+                  </TabsList>
 
-                <TabsContent value="create" className="space-y-4 mt-6">
-                  <div className="text-center py-8">
-                    <div className="w-16 h-16 rounded-full gradient-primary flex items-center justify-center mx-auto mb-4">
-                      <Plus className="w-8 h-8 text-primary-foreground" />
-                    </div>
-                    <h3 className="text-lg font-medium mb-2">Create New Wallet</h3>
-                    <p className="text-muted-foreground text-sm mb-6">
-                      Generate a new wallet with a random private key
-                    </p>
-                    <Button 
-                      onClick={handleCreate} 
-                      className="gradient-primary text-primary-foreground"
-                    >
-                      <Plus className="w-4 h-4 mr-2" />
-                      Create Wallet
-                    </Button>
-                  </div>
-
-                  <div className="p-4 rounded-lg bg-warning/10 border border-warning/30">
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
-                      <div className="text-sm">
-                        <p className="font-medium text-warning">Important!</p>
-                        <p className="text-muted-foreground">
-                          After creating your wallet, make sure to backup your private key securely. 
-                          You will need it to recover your wallet.
-                        </p>
+                  <TabsContent value="create" className="space-y-4 mt-6">
+                    <div className="text-center py-8">
+                      <div className="w-16 h-16 rounded-full gradient-primary flex items-center justify-center mx-auto mb-4">
+                        <Plus className="w-8 h-8 text-primary-foreground" />
                       </div>
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="import" className="space-y-4 mt-6">
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="privateKey">Private Key</Label>
-                      <Input
-                        id="privateKey"
-                        type="password"
-                        placeholder="0x..."
-                        value={importKey}
-                        onChange={(e) => setImportKey(e.target.value)}
-                        className="font-mono bg-secondary"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Enter your private key starting with 0x
+                      <h3 className="text-lg font-medium mb-2">Create New Wallet</h3>
+                      <p className="text-muted-foreground text-sm mb-6">
+                        Generate a new wallet with a random private key
                       </p>
+                      <Button 
+                        onClick={handleCreate} 
+                        className="gradient-primary text-primary-foreground"
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Create Wallet
+                      </Button>
                     </div>
 
-                    <Button 
-                      onClick={handleImport} 
-                      className="w-full gradient-primary text-primary-foreground"
-                    >
-                      <Download className="w-4 h-4 mr-2" />
-                      Import Wallet
-                    </Button>
-                  </div>
-
-                  <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/30">
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
-                      <div className="text-sm">
-                        <p className="font-medium text-destructive">Security Warning</p>
-                        <p className="text-muted-foreground">
-                          Never share your private key with anyone. Only import your key on trusted devices.
-                        </p>
+                    <div className="p-4 rounded-lg bg-warning/10 border border-warning/30">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+                        <div className="text-sm">
+                          <p className="font-medium text-warning">Important!</p>
+                          <p className="text-muted-foreground">
+                            After creating your wallet, make sure to backup your private key securely. 
+                            You will need it to recover your wallet.
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
+                  </TabsContent>
+
+                  <TabsContent value="import" className="space-y-4 mt-6">
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="privateKey">Private Key</Label>
+                        <Input
+                          id="privateKey"
+                          type="password"
+                          placeholder="0x..."
+                          value={importKey}
+                          onChange={(e) => setImportKey(e.target.value)}
+                          className="font-mono bg-secondary"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Enter your private key starting with 0x
+                        </p>
+                      </div>
+
+                      <Button 
+                        onClick={handleImport} 
+                        className="w-full gradient-primary text-primary-foreground"
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        Import Wallet
+                      </Button>
+                    </div>
+
+                    <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/30">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+                        <div className="text-sm">
+                          <p className="font-medium text-destructive">Security Warning</p>
+                          <p className="text-muted-foreground">
+                            Never share your private key with anyone. Only import your key on trusted devices.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
+
+            {/* Show faucet info even before wallet is connected */}
+            <FaucetInfo />
+          </div>
         ) : (
           <div className="space-y-6">
             <WalletCard />
@@ -235,6 +242,10 @@ export default function WalletPage() {
             </Card>
 
             <BalanceGrid />
+            
+            <FaucetInfo />
+            
+            <TransactionHistory />
 
             <Button 
               variant="destructive" 

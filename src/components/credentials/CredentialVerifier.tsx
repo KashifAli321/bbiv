@@ -8,11 +8,13 @@ import { useToast } from '@/hooks/use-toast';
 import { useWallet } from '@/contexts/WalletContext';
 import { verifyCredential, getStoredCredential, createCredentialHash, CredentialData } from '@/lib/wallet';
 import { NetworkSelector } from '@/components/wallet/NetworkSelector';
+import { QRCodeButton } from '@/components/wallet/QRCodeDisplay';
+import { addTransaction } from '@/components/wallet/TransactionHistory';
 
 type VerificationResult = 'pending' | 'valid' | 'invalid' | 'error';
 
 export function CredentialVerifier() {
-  const { network } = useWallet();
+  const { network, address } = useWallet();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [verificationResult, setVerificationResult] = useState<VerificationResult>('pending');
@@ -74,6 +76,20 @@ export function CredentialVerifier() {
 
         if (result.isValid) {
           setVerificationResult('valid');
+          
+          // Add to transaction history
+          if (address) {
+            addTransaction({
+              type: 'verify',
+              txHash: `verify-${Date.now()}`,
+              from: address,
+              to: formData.citizenAddress,
+              status: 'confirmed',
+              network: network.id,
+              description: `Verified credential for ${formData.fullName}`,
+            });
+          }
+
           toast({
             title: 'Credential Verified!',
             description: 'The credential is valid and matches the blockchain record',
@@ -106,6 +122,18 @@ export function CredentialVerifier() {
     }
   };
 
+  // Generate verification QR data
+  const getVerificationQRData = () => {
+    return JSON.stringify({
+      type: 'credential-verification',
+      address: formData.citizenAddress,
+      network: network.id,
+      verified: verificationResult === 'valid',
+      hash: storedHash,
+      timestamp: Date.now(),
+    });
+  };
+
   return (
     <Card className="border-border bg-card border-glow">
       <CardHeader>
@@ -115,7 +143,7 @@ export function CredentialVerifier() {
           </div>
           <div>
             <CardTitle>Verify Credential</CardTitle>
-            <CardDescription>Verify an identity credential on the blockchain</CardDescription>
+            <CardDescription>Verify an identity credential by public address only</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -124,6 +152,13 @@ export function CredentialVerifier() {
           <div className="flex items-center justify-between mb-4">
             <Label>Network</Label>
             <NetworkSelector />
+          </div>
+
+          <div className="p-4 rounded-lg bg-primary/5 border border-primary/20 mb-4">
+            <p className="text-sm text-muted-foreground">
+              <strong className="text-primary">Note:</strong> Verification only requires the citizen's public wallet address. 
+              No face verification is needed for verifiers - just enter the address to check if a credential exists.
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -229,22 +264,32 @@ export function CredentialVerifier() {
                 ? 'bg-destructive/10 border-destructive/30'
                 : 'bg-warning/10 border-warning/30'
             }`}>
-              <div className="flex items-center gap-2 mb-2">
-                {verificationResult === 'valid' ? (
-                  <>
-                    <CheckCircle className="w-5 h-5 text-green-400" />
-                    <span className="font-medium text-green-400">Credential Valid</span>
-                  </>
-                ) : verificationResult === 'invalid' ? (
-                  <>
-                    <XCircle className="w-5 h-5 text-destructive" />
-                    <span className="font-medium text-destructive">Credential Invalid</span>
-                  </>
-                ) : (
-                  <>
-                    <AlertTriangle className="w-5 h-5 text-warning" />
-                    <span className="font-medium text-warning">Verification Error</span>
-                  </>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  {verificationResult === 'valid' ? (
+                    <>
+                      <CheckCircle className="w-5 h-5 text-green-400" />
+                      <span className="font-medium text-green-400">Credential Valid</span>
+                    </>
+                  ) : verificationResult === 'invalid' ? (
+                    <>
+                      <XCircle className="w-5 h-5 text-destructive" />
+                      <span className="font-medium text-destructive">Credential Invalid</span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle className="w-5 h-5 text-warning" />
+                      <span className="font-medium text-warning">Verification Error</span>
+                    </>
+                  )}
+                </div>
+
+                {verificationResult === 'valid' && storedHash && (
+                  <QRCodeButton 
+                    value={getVerificationQRData()} 
+                    title="Verification QR Code"
+                    buttonText="QR"
+                  />
                 )}
               </div>
 
