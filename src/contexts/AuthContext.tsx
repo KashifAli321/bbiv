@@ -236,8 +236,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: { message: 'Not authenticated' } };
     }
 
-    console.log('Updating profile with:', Object.keys(updates));
-
     // Filter out face_descriptor if it's an array (handle separately via raw query)
     const { face_descriptor, ...otherUpdates } = updates as any;
     
@@ -256,8 +254,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) {
       console.error('Profile update error:', error);
     } else {
-      console.log('Profile updated successfully');
-      setProfile(prev => prev ? { ...prev, ...updates } : null);
+      // Refetch profile to ensure state is in sync with database
+      await fetchProfile(user.id);
     }
 
     return { error };
