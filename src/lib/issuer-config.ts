@@ -1,6 +1,5 @@
 // Owner/Issuer configuration
-// This is the default authorized issuer address (project owner)
-// Others must deploy their own contract to become issuers
+// Only the project owner can issue credentials
 
 import { ethers } from 'ethers';
 
@@ -15,21 +14,9 @@ export function isOwnerIssuer(address: string): boolean {
   return address.toLowerCase() === OWNER_ISSUER_ADDRESS.toLowerCase();
 }
 
-// Check if user has deployed their own contract
-export function hasDeployedContract(): boolean {
-  return !!localStorage.getItem('deployed_contract_address');
-}
-
-// Check if an address is authorized to issue credentials
+// Only owner is authorized to issue credentials
 export function isAuthorizedIssuer(address: string): boolean {
-  // Owner is always authorized
-  if (isOwnerIssuer(address)) {
-    return true;
-  }
-  
-  // Others need to deploy their own contract
-  const deployedAddress = localStorage.getItem('deployed_contract_address');
-  return !!deployedAddress;
+  return isOwnerIssuer(address);
 }
 
 // Get the issuer status message
@@ -41,15 +28,8 @@ export function getIssuerStatus(address: string): { authorized: boolean; message
     };
   }
   
-  if (hasDeployedContract()) {
-    return {
-      authorized: true,
-      message: 'You have deployed your own contract'
-    };
-  }
-  
   return {
     authorized: false,
-    message: 'Deploy your own contract to become an issuer'
+    message: 'Only the project owner can issue credentials'
   };
 }

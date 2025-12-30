@@ -10,7 +10,6 @@ import UserPage from "./pages/UserPage";
 import IssuerPage from "./pages/IssuerPage";
 import VerifierPage from "./pages/VerifierPage";
 import WalletPage from "./pages/WalletPage";
-import DeployContractPage from "./pages/DeployContractPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -29,7 +28,6 @@ const App = () => (
               <Route path="/issuer" element={<IssuerPage />} />
               <Route path="/verifier" element={<VerifierPage />} />
               <Route path="/wallet" element={<WalletPage />} />
-              <Route path="/deploy" element={<DeployContractPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Layout>
