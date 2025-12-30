@@ -1,26 +1,40 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
-import { Shield, Lock, Eye, EyeOff, Loader2, CheckCircle } from 'lucide-react';
+import { Shield, Lock, Eye, EyeOff, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { FaceRecognition } from '@/components/credentials/FaceRecognition';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { ethers } from 'ethers';
 
 const passwordSchema = z.string().min(8, 'Password must be at least 8 characters').max(128);
+
+function hashFaceDescriptor(descriptor: number[]): string {
+  const descriptorString = descriptor.join(',');
+  return ethers.keccak256(ethers.toUtf8Bytes(descriptorString));
+}
 
 export default function ResetPasswordPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { updatePassword, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { updatePassword, isAuthenticated, isLoading: authLoading, profile, verifyFace } = useAuth();
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  
+  // Face verification state
+  const [isFaceVerified, setIsFaceVerified] = useState(false);
+  const [faceError, setFaceError] = useState<string | null>(null);
+  const [showCamera, setShowCamera] = useState(false);
+  const [isVerifyingFace, setIsVerifyingFace] = useState(false);
 
   // User should be authenticated via the magic link
   useEffect(() => {
@@ -34,8 +48,55 @@ export default function ResetPasswordPage() {
     }
   }, [isAuthenticated, authLoading, navigate, toast]);
 
+  const handleFaceVerified = async (verified: boolean, faceDescriptor?: number[]) => {
+    if (!verified || !faceDescriptor) {
+      setFaceError('Face capture failed. Please try again.');
+      setShowCamera(false);
+      return;
+    }
+
+    setIsVerifyingFace(true);
+    setFaceError(null);
+
+    try {
+      const faceHash = hashFaceDescriptor(faceDescriptor);
+      
+      // Check if the face matches the registered face
+      if (profile?.face_descriptor_hash) {
+        if (profile.face_descriptor_hash === faceHash) {
+          setIsFaceVerified(true);
+          toast({
+            title: 'Face Verified!',
+            description: 'You can now set your new password.',
+          });
+        } else {
+          setFaceError('Face does not match. Only the account owner can reset the password.');
+          setShowCamera(false);
+        }
+      } else {
+        setFaceError('No face registered for this account. Please contact support.');
+        setShowCamera(false);
+      }
+    } catch (err: any) {
+      setFaceError(err.message || 'Verification failed. Please try again.');
+      setShowCamera(false);
+    } finally {
+      setIsVerifyingFace(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!isFaceVerified) {
+      toast({
+        title: 'Face Verification Required',
+        description: 'Please verify your face before changing your password.',
+        variant: 'destructive'
+      });
+      return;
+    }
+    
     setIsLoading(true);
 
     try {
@@ -101,7 +162,7 @@ export default function ResetPasswordPage() {
         </div>
         <h1 className="text-3xl font-bold text-center mb-2">Reset Password</h1>
         <p className="text-center text-muted-foreground mb-8">
-          Enter your new password below
+          Verify your identity and set a new password
         </p>
 
         {success ? (
@@ -115,10 +176,67 @@ export default function ResetPasswordPage() {
               <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
             </CardContent>
           </Card>
-        ) : (
+        ) : !isFaceVerified ? (
+          // Step 1: Face Verification
           <Card className="border-border bg-card">
             <CardHeader>
-              <CardTitle>New Password</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="w-5 h-5 text-primary" />
+                Step 1: Verify Your Identity
+              </CardTitle>
+              <CardDescription>
+                For security, you must verify your face before resetting your password
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {faceError && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>{faceError}</AlertDescription>
+                </Alert>
+              )}
+
+              {showCamera ? (
+                <div className="space-y-4">
+                  <FaceRecognition
+                    onVerified={handleFaceVerified}
+                    mode="verify"
+                    checkDuplicate={false}
+                  />
+                  {isVerifyingFace && (
+                    <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Verifying your face...
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center space-y-4">
+                  <div className="w-32 h-32 mx-auto rounded-full bg-muted flex items-center justify-center">
+                    <Shield className="w-16 h-16 text-muted-foreground" />
+                  </div>
+                  <p className="text-muted-foreground">
+                    Click the button below to verify your identity
+                  </p>
+                  <Button 
+                    onClick={() => setShowCamera(true)}
+                    className="gradient-primary text-primary-foreground"
+                  >
+                    Start Face Verification
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          // Step 2: Set New Password
+          <Card className="border-border bg-card">
+            <CardHeader>
+              <div className="flex items-center gap-2 text-green-500 text-sm mb-2">
+                <CheckCircle className="w-4 h-4" />
+                Face Verified
+              </div>
+              <CardTitle>Step 2: Set New Password</CardTitle>
               <CardDescription>
                 Choose a strong password with at least 8 characters
               </CardDescription>
