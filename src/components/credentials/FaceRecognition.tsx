@@ -158,11 +158,14 @@ export function FaceRecognition({
           const leftEye = detection.landmarks.getLeftEye();
           const rightEye = detection.landmarks.getRightEye();
           
-          // Calculate eye aspect ratio (EAR)
+          // Calculate eye aspect ratio (EAR) - more lenient calculation
           const calculateEAR = (eye: faceapi.Point[]) => {
+            // Use vertical distances between top/bottom eyelid points
             const height1 = Math.abs(eye[1].y - eye[5].y);
             const height2 = Math.abs(eye[2].y - eye[4].y);
             const width = Math.abs(eye[0].x - eye[3].x);
+            // Avoid division by zero
+            if (width === 0) return 0.3;
             return (height1 + height2) / (2 * width);
           };
 
@@ -170,9 +173,12 @@ export function FaceRecognition({
           const rightEAR = calculateEAR(rightEye);
           const avgEAR = (leftEAR + rightEAR) / 2;
 
-          // Detect blink (EAR drops below threshold then recovers)
+          // Detect blink with more lenient thresholds
+          // Normal open eye EAR is ~0.25-0.35, closed is ~0.1-0.2
           if (livenessStep === 'blink') {
-            if (lastEyeAspectRatio > 0.2 && avgEAR < 0.15) {
+            // Detect transition from open to closed (blink)
+            // More lenient: open > 0.18, closed < 0.22
+            if (lastEyeAspectRatio > 0.18 && avgEAR < 0.22) {
               blinkCounter++;
               setBlinkCount(blinkCounter);
               if (blinkCounter >= 2) {
@@ -183,10 +189,11 @@ export function FaceRecognition({
             lastEyeAspectRatio = avgEAR;
           }
 
-          // Check for smile
+          // Check for smile with more lenient threshold
           if (livenessStep === 'smile') {
             const expressions = detection.expressions;
-            if (expressions.happy > 0.7) {
+            // Reduced threshold from 0.7 to 0.4 for better detection
+            if (expressions.happy > 0.4) {
               setSmileDetected(true);
               setLivenessStep('done');
               toast.success('Smile detected! You can now capture.');
