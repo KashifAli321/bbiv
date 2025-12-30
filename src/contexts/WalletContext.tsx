@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { NETWORKS, Network, DEFAULT_NETWORK } from '@/lib/networks';
-import { getBalance, getAllBalances, createWallet, importWallet, truncateAddress } from '@/lib/wallet';
+import { getBalance, getAllBalances, createWallet, importWallet } from '@/lib/wallet';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { 
@@ -15,20 +15,21 @@ import {
 
 interface WalletContextType {
   address: string | null;
-  privateKey: string | null;
   network: Network;
   balance: string;
   balances: Record<string, string>;
   isConnected: boolean;
   isLoading: boolean;
   hasLinkedWallet: boolean;
-  isDecrypting: boolean;
   setNetwork: (networkId: string) => void;
   createNewWallet: () => Promise<{ success: boolean; error?: string }>;
   importFromPrivateKey: (key: string) => Promise<{ success: boolean; error?: string }>;
   disconnect: () => void;
   refreshBalance: () => Promise<void>;
   refreshAllBalances: () => Promise<void>;
+  // Secure signing - decrypts key only when needed
+  getDecryptedPrivateKey: () => Promise<string | null>;
+  signWithWallet: <T>(operation: (privateKey: string) => Promise<T>) => Promise<{ success: boolean; result?: T; error?: string }>;
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
@@ -37,15 +38,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const { user, profile, isAuthenticated, updateProfile, session } = useAuth();
   
   const [address, setAddress] = useState<string | null>(null);
-  const [privateKey, setPrivateKey] = useState<string | null>(null);
   const [network, setNetworkState] = useState<Network>(NETWORKS[DEFAULT_NETWORK]);
   const [balance, setBalance] = useState<string>('0');
   const [balances, setBalances] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
-  const [isDecrypting, setIsDecrypting] = useState(false);
 
   // Get or generate session password for encryption
-  const getEncryptionPassword = (): string | null => {
+  const getEncryptionPassword = useCallback((): string | null => {
     if (!session?.access_token || !user?.id) return null;
     
     let password = getSessionPassword();
@@ -54,59 +53,40 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setSessionPassword(password);
     }
     return password;
-  };
+  }, [session, user]);
 
-  // Load and decrypt wallet from profile when user logs in
+  // Load wallet address (NOT private key) from profile when user logs in
   useEffect(() => {
     const loadWallet = async () => {
       if (isAuthenticated && profile && user && session) {
         if (profile.wallet_address && profile.wallet_private_key_encrypted) {
           setAddress(profile.wallet_address);
           
-          // Decrypt the private key
+          // Check if we need to migrate unencrypted data
           const password = getEncryptionPassword();
-          if (password) {
-            setIsDecrypting(true);
+          if (password && !isEncrypted(profile.wallet_private_key_encrypted)) {
+            // Legacy unencrypted data - encrypt it now
             try {
-              // Check if data is actually encrypted or legacy plaintext
-              if (isEncrypted(profile.wallet_private_key_encrypted)) {
-                const decrypted = await decryptPrivateKey(
-                  profile.wallet_private_key_encrypted,
-                  user.id,
-                  password
-                );
-                setPrivateKey(decrypted);
-              } else {
-                // Legacy unencrypted data - encrypt it now
-                const encrypted = await encryptPrivateKey(
-                  profile.wallet_private_key_encrypted,
-                  user.id,
-                  password
-                );
-                
-                // Update database with encrypted version
-                await updateProfile({
-                  wallet_private_key_encrypted: encrypted
-                });
-                
-                setPrivateKey(profile.wallet_private_key_encrypted);
-              }
+              const encrypted = await encryptPrivateKey(
+                profile.wallet_private_key_encrypted,
+                user.id,
+                password
+              );
+              
+              // Update database with encrypted version
+              await updateProfile({
+                wallet_private_key_encrypted: encrypted
+              });
             } catch (error) {
-              console.error('Failed to decrypt wallet:', error);
-              // Don't expose the key if decryption fails
-              setPrivateKey(null);
-            } finally {
-              setIsDecrypting(false);
+              console.error('Failed to migrate wallet encryption:', error);
             }
           }
         } else {
           setAddress(null);
-          setPrivateKey(null);
         }
       } else {
         // Not authenticated, clear wallet and session password
         setAddress(null);
-        setPrivateKey(null);
         setBalance('0');
         setBalances({});
         clearSessionPassword();
@@ -114,7 +94,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     };
     
     loadWallet();
-  }, [isAuthenticated, profile, user, session]);
+  }, [isAuthenticated, profile, user, session, getEncryptionPassword, updateProfile]);
 
   // Refresh balance when address or network changes
   useEffect(() => {
@@ -155,6 +135,58 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Decrypt private key on-demand for signing operations
+  // Key is only in memory during the operation and cleared after
+  const getDecryptedPrivateKey = useCallback(async (): Promise<string | null> => {
+    if (!user?.id || !profile?.wallet_private_key_encrypted) {
+      return null;
+    }
+
+    const password = getEncryptionPassword();
+    if (!password) {
+      return null;
+    }
+
+    try {
+      // If not encrypted (legacy), return as-is but log warning
+      if (!isEncrypted(profile.wallet_private_key_encrypted)) {
+        console.warn('Using unencrypted private key - migration pending');
+        return profile.wallet_private_key_encrypted;
+      }
+
+      const decrypted = await decryptPrivateKey(
+        profile.wallet_private_key_encrypted,
+        user.id,
+        password
+      );
+      return decrypted;
+    } catch (error) {
+      console.error('Failed to decrypt wallet:', error);
+      return null;
+    }
+  }, [user, profile, getEncryptionPassword]);
+
+  // Secure signing wrapper - decrypts key, performs operation, key is garbage collected
+  const signWithWallet = useCallback(async <T,>(
+    operation: (privateKey: string) => Promise<T>
+  ): Promise<{ success: boolean; result?: T; error?: string }> => {
+    const privateKey = await getDecryptedPrivateKey();
+    
+    if (!privateKey) {
+      return { success: false, error: 'Unable to access wallet. Please re-authenticate.' };
+    }
+
+    try {
+      // Execute the signing operation
+      // Private key is only in memory for this scope
+      const result = await operation(privateKey);
+      // privateKey goes out of scope here and will be garbage collected
+      return { success: true, result };
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Operation failed' };
+    }
+  }, [getDecryptedPrivateKey]);
+
   const createNewWallet = async (): Promise<{ success: boolean; error?: string }> => {
     if (!isAuthenticated || !user) {
       return { success: false, error: 'You must be logged in to create a wallet' };
@@ -186,9 +218,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }
 
       setAddress(wallet.address);
-      setPrivateKey(wallet.privateKey);
       setBalance('0');
       
+      // wallet.privateKey goes out of scope here - not stored in state
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message || 'Failed to create wallet' };
@@ -240,8 +272,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }
 
       setAddress(wallet.address);
-      setPrivateKey(wallet.privateKey);
       
+      // wallet.privateKey goes out of scope here - not stored in state
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message || 'Failed to import wallet' };
@@ -250,7 +282,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const disconnect = () => {
     setAddress(null);
-    setPrivateKey(null);
     setBalance('0');
     setBalances({});
   };
@@ -259,20 +290,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     <WalletContext.Provider
       value={{
         address,
-        privateKey,
         network,
         balance,
         balances,
         isConnected: !!address,
         isLoading,
         hasLinkedWallet: !!profile?.wallet_address,
-        isDecrypting,
         setNetwork,
         createNewWallet,
         importFromPrivateKey,
         disconnect,
         refreshBalance,
         refreshAllBalances,
+        getDecryptedPrivateKey,
+        signWithWallet,
       }}
     >
       {children}

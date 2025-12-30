@@ -17,7 +17,7 @@ import { sendTransaction } from '@/lib/wallet';
 import { ethers } from 'ethers';
 
 export default function WalletPage() {
-  const { isConnected, createNewWallet, importFromPrivateKey, privateKey, network, hasLinkedWallet } = useWallet();
+  const { isConnected, createNewWallet, importFromPrivateKey, signWithWallet, network, hasLinkedWallet } = useWallet();
   const { profile } = useAuth();
   const { toast } = useToast();
   const [importKey, setImportKey] = useState('');
@@ -63,7 +63,7 @@ export default function WalletPage() {
     if (result.success) {
       toast({
         title: 'Wallet Created!',
-        description: 'Your new wallet has been created and linked to your account. Make sure to backup your private key!',
+        description: 'Your new wallet has been created and linked to your account securely.',
       });
     } else {
       toast({
@@ -76,7 +76,7 @@ export default function WalletPage() {
   };
 
   const handleSend = async () => {
-    if (!sendForm.to || !sendForm.amount || !privateKey) {
+    if (!sendForm.to || !sendForm.amount) {
       toast({
         title: 'Error',
         description: 'Please fill in all fields',
@@ -108,18 +108,21 @@ export default function WalletPage() {
 
     setIsSending(true);
     try {
-      const result = await sendTransaction(privateKey, sendForm.to, sendForm.amount, network.id);
+      // Use secure signing - private key is decrypted only for this operation
+      const result = await signWithWallet(async (privateKey) => {
+        return await sendTransaction(privateKey, sendForm.to, sendForm.amount, network.id);
+      });
       
-      if (result.success) {
+      if (result.success && result.result?.success) {
         toast({
           title: 'Transaction Sent!',
-          description: `Transaction hash: ${result.txHash?.slice(0, 20)}...`,
+          description: `Transaction hash: ${result.result.txHash?.slice(0, 20)}...`,
         });
         setSendForm({ to: '', amount: '' });
       } else {
         toast({
           title: 'Transaction Failed',
-          description: result.error || 'Unknown error',
+          description: result.error || result.result?.error || 'Unknown error',
           variant: 'destructive',
         });
       }
@@ -208,7 +211,7 @@ export default function WalletPage() {
                             <p className="font-medium text-warning">Important!</p>
                             <p className="text-muted-foreground">
                               This wallet will be permanently linked to your account. 
-                              Make sure to backup your private key securely after creation.
+                              Your private key is encrypted and stored securely.
                             </p>
                           </div>
                         </div>
@@ -248,7 +251,7 @@ export default function WalletPage() {
                           <div className="text-sm">
                             <p className="font-medium text-destructive">Security Warning</p>
                             <p className="text-muted-foreground">
-                              Never share your private key with anyone. This wallet will be permanently linked to your account.
+                              Never share your private key with anyone. This wallet will be permanently linked to your account and encrypted.
                             </p>
                           </div>
                         </div>
