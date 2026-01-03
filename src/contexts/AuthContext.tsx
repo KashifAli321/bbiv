@@ -21,7 +21,7 @@ interface AuthContextType {
   updateProfile: (updates: Partial<Profile>) => Promise<{ error: any }>;
   checkUsernameExists: (username: string) => Promise<boolean>;
   checkFaceHashExists: (hash: string) => Promise<boolean>;
-  checkFaceSimilarity: (descriptor: number[]) => Promise<boolean>;
+  checkFaceSimilarity: (descriptor: number[]) => Promise<{ exists: boolean; walletAddress: string | null }>;
 }
 
 interface Profile {
@@ -130,18 +130,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // Check if a similar face already exists using Euclidean distance
-  const checkFaceSimilarity = async (descriptor: number[]): Promise<boolean> => {
-    const { data, error } = await supabase.rpc('check_face_similarity', {
+  // Returns { exists: boolean, walletAddress: string | null }
+  const checkFaceSimilarity = async (descriptor: number[]): Promise<{ exists: boolean; walletAddress: string | null }> => {
+    const { data, error } = await supabase.rpc('check_face_similarity_with_wallet', {
       _descriptor: descriptor,
       _threshold: 0.6
     });
     
     if (error) {
       console.error('Error checking face similarity:', error);
-      return false;
+      return { exists: false, walletAddress: null };
     }
     
-    return data === true;
+    // The function returns a table with similar_exists and wallet_address
+    if (data && data.length > 0) {
+      return { exists: data[0].similar_exists, walletAddress: data[0].wallet_address };
+    }
+    
+    return { exists: false, walletAddress: null };
   };
 
   const signUp = async (email: string, password: string, username: string) => {

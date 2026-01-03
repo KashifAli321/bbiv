@@ -60,16 +60,19 @@ export default function FaceRegisterPage() {
       const faceHash = hashFaceDescriptor(faceDescriptor);
 
       // Check if a similar face is already registered using Euclidean distance
-      let similarFaceExists = false;
+      let similarityResult = { exists: false, walletAddress: null as string | null };
       try {
-        similarFaceExists = await checkFaceSimilarity(faceDescriptor);
+        similarityResult = await checkFaceSimilarity(faceDescriptor);
       } catch (similarityError) {
         console.error('Face similarity check error:', similarityError);
         // Continue with registration if similarity check fails (first user case)
       }
       
-      if (similarFaceExists) {
-        setError('A similar face is already registered with another account. Multi-account registration is not allowed.');
+      if (similarityResult.exists) {
+        const walletDisplay = similarityResult.walletAddress 
+          ? `${similarityResult.walletAddress.slice(0, 6)}...${similarityResult.walletAddress.slice(-4)}`
+          : 'another account';
+        setError(`This face is already registered with wallet ${walletDisplay}. Multi-account registration is not allowed.`);
         setShowCamera(false);
         setIsRegistering(false);
         return;

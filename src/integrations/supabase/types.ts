@@ -138,6 +138,13 @@ export type Database = {
         Args: { _descriptor: number[]; _threshold?: number }
         Returns: boolean
       }
+      check_face_similarity_with_wallet: {
+        Args: { _descriptor: number[]; _threshold?: number }
+        Returns: {
+          similar_exists: boolean
+          wallet_address: string
+        }[]
+      }
       credential_exists_for_address: {
         Args: { _address: string }
         Returns: boolean
