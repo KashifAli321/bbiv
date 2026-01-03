@@ -30,6 +30,9 @@ export type Database = {
           issuer_address: string
           issuer_user_id: string
           national_id: string
+          revocation_tx_hash: string | null
+          revoked_at: string | null
+          revoked_by: string | null
           signature: string
           updated_at: string
         }
@@ -48,6 +51,9 @@ export type Database = {
           issuer_address: string
           issuer_user_id: string
           national_id: string
+          revocation_tx_hash?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
           signature: string
           updated_at?: string
         }
@@ -66,6 +72,9 @@ export type Database = {
           issuer_address?: string
           issuer_user_id?: string
           national_id?: string
+          revocation_tx_hash?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
           signature?: string
           updated_at?: string
         }

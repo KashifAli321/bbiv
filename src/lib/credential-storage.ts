@@ -4,7 +4,7 @@
 
 import { ethers } from 'ethers';
 import { supabase } from '@/integrations/supabase/client';
-import { issueCredential as issueCredentialOnChain } from './wallet';
+import { issueCredential as issueCredentialOnChain, revokeCredential as revokeCredentialOnChain } from './wallet';
 
 export interface StoredCredential {
   citizenAddress: string;
@@ -18,6 +18,9 @@ export interface StoredCredential {
   expiryDate: string;
   faceDescriptorHash?: string;
   txHash?: string;
+  revokedAt?: string;
+  revokedBy?: string;
+  revocationTxHash?: string;
 }
 
 interface DatabaseCredential {
@@ -475,5 +478,89 @@ export async function getExistingFaceHashes(): Promise<string[]> {
   } catch (error) {
     console.error('Error fetching face hashes:', error);
     return [];
+  }
+}
+
+// Revoke a credential - removes from blockchain and marks as revoked in database
+export async function revokeCredentialForCitizen(
+  privateKey: string,
+  citizenAddress: string
+): Promise<{ success: boolean; txHash?: string; error?: string }> {
+  try {
+    // Validate Ethereum address format
+    if (!ethers.isAddress(citizenAddress)) {
+      return { success: false, error: 'Invalid Ethereum address format' };
+    }
+
+    // Get current user (must be admin/issuer)
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return { success: false, error: 'Not authenticated' };
+    }
+
+    // Check if credential exists
+    const existingCredential = await checkCredentialExistsForAddress(citizenAddress);
+    if (!existingCredential) {
+      return { success: false, error: 'No credential found for this address' };
+    }
+
+    // Revoke on blockchain first
+    const blockchainResult = await revokeCredentialOnChain(
+      privateKey,
+      citizenAddress,
+      'sepolia'
+    );
+
+    if (!blockchainResult.success) {
+      return { 
+        success: false, 
+        error: `Blockchain error: ${blockchainResult.error}. Make sure you have Sepolia ETH for gas fees.`
+      };
+    }
+
+    // Update database to mark as revoked
+    const { error } = await supabase
+      .from('credentials')
+      .update({
+        revoked_at: new Date().toISOString(),
+        revoked_by: user.id,
+        revocation_tx_hash: blockchainResult.txHash,
+      })
+      .eq('citizen_address', citizenAddress);
+
+    if (error) {
+      console.error('Error updating credential revocation in database:', error);
+      // Blockchain revocation succeeded but database update failed
+      return { 
+        success: true, 
+        txHash: blockchainResult.txHash,
+        error: 'Revoked on blockchain but failed to update database'
+      };
+    }
+
+    return { success: true, txHash: blockchainResult.txHash };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to revoke credential';
+    return { success: false, error: errorMessage };
+  }
+}
+
+// Check if a credential is revoked
+export async function isCredentialRevoked(citizenAddress: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from('credentials')
+      .select('revoked_at')
+      .eq('citizen_address', citizenAddress)
+      .maybeSingle();
+
+    if (error || !data) {
+      return false;
+    }
+
+    return data.revoked_at !== null;
+  } catch (error) {
+    console.error('Error checking revocation status:', error);
+    return false;
   }
 }
