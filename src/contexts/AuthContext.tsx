@@ -16,7 +16,7 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: any }>;
   updatePassword: (newPassword: string) => Promise<{ error: any }>;
-  verifyFace: (faceDescriptorHash: string) => Promise<{ success: boolean; error?: string }>;
+  verifyFace: (faceDescriptor: number[]) => Promise<{ success: boolean; error?: string }>;
   setFaceVerified: (verified: boolean) => void;
   updateProfile: (updates: Partial<Profile>) => Promise<{ error: any }>;
   checkUsernameExists: (username: string) => Promise<boolean>;
@@ -215,18 +215,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error };
   };
 
-  const verifyFace = async (faceDescriptorHash: string) => {
+  // Verify face using Euclidean distance comparison (not hash)
+  const verifyFace = async (faceDescriptor: number[]) => {
     if (!user || !profile) {
       return { success: false, error: 'Not authenticated' };
     }
 
-    // If user has a stored face hash, compare it
-    if (profile.face_descriptor_hash) {
-      if (profile.face_descriptor_hash === faceDescriptorHash) {
-        setIsFaceVerified(true);
-        return { success: true };
-      } else {
-        return { success: false, error: 'Face does not match registered face' };
+    // If user has a stored face descriptor, compare using Euclidean distance
+    if (profile.face_descriptor && Array.isArray(profile.face_descriptor)) {
+      const storedDescriptor = profile.face_descriptor as number[];
+      
+      // Calculate Euclidean distance
+      if (storedDescriptor.length === faceDescriptor.length) {
+        let sum = 0;
+        for (let i = 0; i < faceDescriptor.length; i++) {
+          sum += Math.pow(faceDescriptor[i] - storedDescriptor[i], 2);
+        }
+        const distance = Math.sqrt(sum);
+        
+        // Threshold of 0.6 - same as registration
+        if (distance < 0.6) {
+          setIsFaceVerified(true);
+          return { success: true };
+        } else {
+          return { success: false, error: 'Face does not match registered face' };
+        }
       }
     }
 
