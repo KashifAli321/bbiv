@@ -1,16 +1,25 @@
 import { useState } from 'react';
-import { Search, CheckCircle, XCircle, AlertTriangle, User, Calendar, CreditCard } from 'lucide-react';
+import { Search, CheckCircle, XCircle, AlertTriangle, User, Calendar, CreditCard, Link2, ExternalLink } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useWallet } from '@/contexts/WalletContext';
 import { QRCodeButton } from '@/components/wallet/QRCodeDisplay';
 import { addTransaction } from '@/components/wallet/TransactionHistory';
 import { verifyCredentialForCitizen, StoredCredential } from '@/lib/credential-storage';
+import { verifyCredential as verifyCredentialOnChain, getStoredCredential } from '@/lib/wallet';
 
 type VerificationResult = 'pending' | 'valid' | 'invalid' | 'expired' | 'error';
+
+interface BlockchainVerification {
+  checked: boolean;
+  onChain: boolean;
+  hashMatch: boolean;
+  storedHash: string | null;
+}
 
 export function CredentialVerifier() {
   const { network, address } = useWallet();
@@ -19,6 +28,12 @@ export function CredentialVerifier() {
   const [verificationResult, setVerificationResult] = useState<VerificationResult>('pending');
   const [credential, setCredential] = useState<StoredCredential | null>(null);
   const [citizenAddress, setCitizenAddress] = useState('');
+  const [blockchainVerification, setBlockchainVerification] = useState<BlockchainVerification>({
+    checked: false,
+    onChain: false,
+    hashMatch: false,
+    storedHash: null,
+  });
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,9 +50,40 @@ export function CredentialVerifier() {
     setIsLoading(true);
     setVerificationResult('pending');
     setCredential(null);
+    setBlockchainVerification({
+      checked: false,
+      onChain: false,
+      hashMatch: false,
+      storedHash: null,
+    });
 
     try {
+      // First, verify in database
       const result = await verifyCredentialForCitizen(citizenAddress);
+      
+      // Then, verify on blockchain
+      let blockchainResult: BlockchainVerification = {
+        checked: true,
+        onChain: false,
+        hashMatch: false,
+        storedHash: null,
+      };
+
+      try {
+        const storedHash = await getStoredCredential(citizenAddress, 'sepolia');
+        blockchainResult.storedHash = storedHash;
+        blockchainResult.onChain = storedHash !== null;
+        
+        if (storedHash && result.credential) {
+          blockchainResult.hashMatch = storedHash.toLowerCase() === result.credential.credentialHash.toLowerCase();
+        }
+      } catch (blockchainError) {
+        console.error('Blockchain verification error:', blockchainError);
+        blockchainResult.checked = true;
+        blockchainResult.onChain = false;
+      }
+
+      setBlockchainVerification(blockchainResult);
       
       if (result.isValid && result.credential) {
         setVerificationResult('valid');
@@ -51,14 +97,16 @@ export function CredentialVerifier() {
             from: address,
             to: citizenAddress,
             status: 'confirmed',
-            network: network.id,
+            network: 'sepolia',
             description: `Verified credential for ${result.credential.fullName}`,
           });
         }
 
         toast({
           title: 'Credential Verified!',
-          description: 'The credential is valid and properly signed',
+          description: blockchainResult.onChain && blockchainResult.hashMatch 
+            ? 'Valid on blockchain and database' 
+            : 'Valid in database',
         });
       } else if (result.credential && result.error?.includes('expired')) {
         setVerificationResult('expired');
@@ -94,6 +142,7 @@ export function CredentialVerifier() {
       type: 'credential-verification',
       address: citizenAddress,
       verified: verificationResult === 'valid',
+      blockchainVerified: blockchainVerification.onChain && blockchainVerification.hashMatch,
       credential: credential ? {
         fullName: credential.fullName,
         nationalId: credential.nationalId,
@@ -207,6 +256,62 @@ export function CredentialVerifier() {
                 )}
               </div>
 
+              {/* Blockchain Verification Status */}
+              {blockchainVerification.checked && (
+                <div className="p-3 rounded-lg bg-background/50 border border-border">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Link2 className="w-4 h-4 text-primary" />
+                    <span className="text-sm font-medium">Blockchain Verification</span>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">On-chain status:</span>
+                      {blockchainVerification.onChain ? (
+                        <Badge variant="default" className="bg-green-500/20 text-green-400 border-green-500/30">
+                          <CheckCircle className="w-3 h-3 mr-1" />
+                          Found on Sepolia
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">
+                          <AlertTriangle className="w-3 h-3 mr-1" />
+                          Not on blockchain
+                        </Badge>
+                      )}
+                    </div>
+                    {blockchainVerification.onChain && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Hash match:</span>
+                        {blockchainVerification.hashMatch ? (
+                          <Badge variant="default" className="bg-green-500/20 text-green-400 border-green-500/30">
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            Verified
+                          </Badge>
+                        ) : (
+                          <Badge variant="destructive">
+                            <XCircle className="w-3 h-3 mr-1" />
+                            Mismatch
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                    {blockchainVerification.storedHash && (
+                      <div className="mt-2">
+                        <p className="text-xs text-muted-foreground mb-1">On-chain Hash:</p>
+                        <p className="font-mono text-xs break-all text-primary/80">{blockchainVerification.storedHash}</p>
+                      </div>
+                    )}
+                    <a 
+                      href={`https://sepolia.etherscan.io/address/${citizenAddress}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-2"
+                    >
+                      View on Etherscan <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                </div>
+              )}
+
               {credential && (
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -256,7 +361,7 @@ export function CredentialVerifier() {
                   </div>
 
                   <div className="pt-3 border-t border-border">
-                    <p className="text-xs text-muted-foreground mb-1">Credential Hash</p>
+                    <p className="text-xs text-muted-foreground mb-1">Credential Hash (Database)</p>
                     <p className="font-mono text-xs break-all text-primary">{credential.credentialHash}</p>
                   </div>
                 </div>
