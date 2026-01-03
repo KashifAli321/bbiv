@@ -160,6 +160,10 @@ export type Database = {
       }
       credential_face_hash_exists: { Args: { _hash: string }; Returns: boolean }
       face_hash_exists: { Args: { _hash: string }; Returns: boolean }
+      get_user_id_by_wallet: {
+        Args: { _wallet_address: string }
+        Returns: string
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
