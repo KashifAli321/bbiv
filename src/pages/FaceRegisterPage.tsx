@@ -85,17 +85,16 @@ export default function FaceRegisterPage() {
         setError(updateError.message || 'Failed to register face. Please try again.');
         setShowCamera(false);
       } else {
-        setSuccess(true);
+        // Set face verified BEFORE showing success
         setFaceVerified(true);
+        setSuccess(true);
         toast({
           title: 'Face Registered!',
           description: 'Your biometric identity has been securely stored.',
         });
         
-        // Redirect after a short delay
-        setTimeout(() => {
-          navigate('/');
-        }, 2000);
+        // Navigate immediately - state is already updated
+        navigate('/');
       }
     } catch (err: any) {
       console.error('Face registration error:', err);
