@@ -125,6 +125,25 @@ export async function issueCredential(
   }
 }
 
+// Revoke credential on-chain
+export async function revokeCredential(
+  privateKey: string,
+  citizenAddress: string,
+  networkId: string = 'sepolia'
+): Promise<{ success: boolean; txHash?: string; error?: string }> {
+  try {
+    const signer = getSigner(privateKey, networkId);
+    const contract = getCredentialContract(signer);
+    
+    const tx = await contract.revokeCredential(citizenAddress);
+    const receipt = await tx.wait();
+    
+    return { success: true, txHash: receipt.hash };
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Failed to revoke credential' };
+  }
+}
+
 // Verify credential on-chain
 export async function verifyCredential(
   citizenAddress: string,
