@@ -67,23 +67,17 @@ export function CredentialIssuer() {
     }
   };
 
-  // Look up citizen user ID by wallet address (case-insensitive)
+  // Look up citizen user ID by wallet address using database function (bypasses RLS)
   const findCitizenUserId = async (citizenAddress: string): Promise<string | null> => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('user_id, wallet_address')
-      .not('wallet_address', 'is', null);
+    const { data, error } = await supabase.rpc('get_user_id_by_wallet', {
+      _wallet_address: citizenAddress
+    });
     
     if (error || !data) {
       return null;
     }
     
-    // Case-insensitive comparison for Ethereum addresses
-    const matchingProfile = data.find(
-      profile => profile.wallet_address?.toLowerCase() === citizenAddress.toLowerCase()
-    );
-    
-    return matchingProfile?.user_id || null;
+    return data;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
