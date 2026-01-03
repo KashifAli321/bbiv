@@ -168,20 +168,20 @@ export function CredentialIssuer() {
       if (result?.success && result.credential) {
         setIssuedSuccessfully(true);
         
-        // Add to transaction history
+        // Add to transaction history with blockchain tx hash
         addTransaction({
           type: 'issue',
-          txHash: result.credential.credentialHash.slice(0, 66),
+          txHash: result.credential.txHash || result.credential.credentialHash.slice(0, 66),
           from: address,
           to: formData.citizenAddress,
           status: 'confirmed',
-          network: network.id,
+          network: 'sepolia',
           description: `Issued credential to ${formData.fullName}`,
         });
 
         toast({
           title: 'Credential Issued!',
-          description: 'The credential has been signed and stored securely',
+          description: `Credential stored on blockchain and database. TX: ${result.credential.txHash?.slice(0, 10)}...`,
         });
 
         // Reset form
