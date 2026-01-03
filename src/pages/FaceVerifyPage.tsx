@@ -7,12 +7,6 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { FaceRecognition } from '@/components/credentials/FaceRecognition';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { ethers } from 'ethers';
-
-function hashFaceDescriptor(descriptor: number[]): string {
-  const descriptorString = descriptor.join(',');
-  return ethers.keccak256(ethers.toUtf8Bytes(descriptorString));
-}
 
 export default function FaceVerifyPage() {
   const navigate = useNavigate();
@@ -64,8 +58,8 @@ export default function FaceVerifyPage() {
     setError(null);
 
     try {
-      const faceHash = hashFaceDescriptor(faceDescriptor);
-      const result = await verifyFace(faceHash);
+      // Pass the face descriptor array directly for Euclidean distance comparison
+      const result = await verifyFace(faceDescriptor);
 
       if (result.success) {
         toast({
