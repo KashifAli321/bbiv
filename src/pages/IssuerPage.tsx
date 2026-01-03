@@ -4,11 +4,12 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CredentialIssuer } from '@/components/credentials/CredentialIssuer';
 import { CredentialRevoker } from '@/components/credentials/CredentialRevoker';
+import { ContractDeployer } from '@/components/credentials/ContractDeployer';
 import { useWallet } from '@/contexts/WalletContext';
-import { CREDENTIAL_CONTRACT_ADDRESS } from '@/lib/contracts';
-
+import { getCredentialContractAddress } from '@/lib/contracts';
 export default function IssuerPage() {
   const { address } = useWallet();
+  const contractAddress = getCredentialContractAddress();
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -27,10 +28,14 @@ export default function IssuerPage() {
           <Info className="h-4 w-4 text-primary" />
           <AlertTitle>Issuer Access Required</AlertTitle>
           <AlertDescription>
-            Only the authorized issuer wallet can issue credentials. The issuer address must be the 
-            contract owner at deployment time.
+            Only the wallet that deployed the contract can issue credentials. Deploy your own contract below to become an issuer.
           </AlertDescription>
         </Alert>
+
+        {/* Contract Deployer Section */}
+        <div className="mb-6">
+          <ContractDeployer />
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
@@ -57,7 +62,7 @@ export default function IssuerPage() {
                 <div>
                   <span className="text-xs text-muted-foreground">Contract Address</span>
                   <p className="font-mono text-xs break-all text-primary mt-1">
-                    {CREDENTIAL_CONTRACT_ADDRESS}
+                    {contractAddress}
                   </p>
                 </div>
                 <div>
