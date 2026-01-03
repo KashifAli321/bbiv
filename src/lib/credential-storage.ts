@@ -1,9 +1,10 @@
-// Secure credential storage using Supabase database with RLS
-// Credentials are stored server-side with proper access control
+// Secure credential storage using Supabase database with RLS + Blockchain
+// Credentials hash is stored on-chain, full data is stored server-side
 // No PII stored in localStorage - all sensitive data is in the database
 
 import { ethers } from 'ethers';
 import { supabase } from '@/integrations/supabase/client';
+import { issueCredential as issueCredentialOnChain } from './wallet';
 
 export interface StoredCredential {
   citizenAddress: string;
@@ -16,6 +17,7 @@ export interface StoredCredential {
   nationalId: string;
   expiryDate: string;
   faceDescriptorHash?: string;
+  txHash?: string;
 }
 
 interface DatabaseCredential {
@@ -244,6 +246,21 @@ export async function signAndIssueCredential(
     // Sign the credential hash
     const signature = await wallet.signMessage(ethers.getBytes(credentialHash));
 
+    // Store credential hash on blockchain first
+    const blockchainResult = await issueCredentialOnChain(
+      privateKey,
+      citizenAddress,
+      credentialHash,
+      'sepolia'
+    );
+
+    if (!blockchainResult.success) {
+      return { 
+        success: false, 
+        error: `Blockchain error: ${blockchainResult.error}. Make sure you have Sepolia ETH for gas fees.`
+      };
+    }
+
     // Store credential in database (with both hash and descriptor)
     const { data, error } = await supabase
       .from('credentials')
@@ -266,7 +283,7 @@ export async function signAndIssueCredential(
 
     if (error) {
       console.error('Error storing credential:', error);
-      return { success: false, error: error.message || 'Failed to store credential' };
+      return { success: false, error: error.message || 'Failed to store credential in database' };
     }
 
     const credential: StoredCredential = {
@@ -280,6 +297,7 @@ export async function signAndIssueCredential(
       nationalId: sanitizedNationalId,
       expiryDate: credentialData.expiryDate,
       faceDescriptorHash,
+      txHash: blockchainResult.txHash,
     };
 
     return { success: true, credential };
