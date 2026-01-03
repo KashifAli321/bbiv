@@ -1,7 +1,9 @@
 import { FileCheck, AlertTriangle, Info } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CredentialIssuer } from '@/components/credentials/CredentialIssuer';
+import { CredentialRevoker } from '@/components/credentials/CredentialRevoker';
 import { useWallet } from '@/contexts/WalletContext';
 import { CREDENTIAL_CONTRACT_ADDRESS } from '@/lib/contracts';
 
@@ -32,7 +34,18 @@ export default function IssuerPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
-            <CredentialIssuer />
+            <Tabs defaultValue="issue" className="w-full">
+              <TabsList className="grid w-full grid-cols-2 mb-4">
+                <TabsTrigger value="issue">Issue Credential</TabsTrigger>
+                <TabsTrigger value="revoke">Revoke Credential</TabsTrigger>
+              </TabsList>
+              <TabsContent value="issue">
+                <CredentialIssuer />
+              </TabsContent>
+              <TabsContent value="revoke">
+                <CredentialRevoker />
+              </TabsContent>
+            </Tabs>
           </div>
 
           <div className="space-y-6">

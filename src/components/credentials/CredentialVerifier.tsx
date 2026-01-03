@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, CheckCircle, XCircle, AlertTriangle, User, Calendar, CreditCard, Link2, ExternalLink } from 'lucide-react';
+import { Search, CheckCircle, XCircle, AlertTriangle, User, Calendar, CreditCard, Link2, ExternalLink, Ban } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,10 +9,10 @@ import { useToast } from '@/hooks/use-toast';
 import { useWallet } from '@/contexts/WalletContext';
 import { QRCodeButton } from '@/components/wallet/QRCodeDisplay';
 import { addTransaction } from '@/components/wallet/TransactionHistory';
-import { verifyCredentialForCitizen, StoredCredential } from '@/lib/credential-storage';
+import { verifyCredentialForCitizen, StoredCredential, isCredentialRevoked } from '@/lib/credential-storage';
 import { verifyCredential as verifyCredentialOnChain, getStoredCredential } from '@/lib/wallet';
 
-type VerificationResult = 'pending' | 'valid' | 'invalid' | 'expired' | 'error';
+type VerificationResult = 'pending' | 'valid' | 'invalid' | 'expired' | 'revoked' | 'error';
 
 interface BlockchainVerification {
   checked: boolean;
@@ -84,8 +84,19 @@ export function CredentialVerifier() {
       }
 
       setBlockchainVerification(blockchainResult);
+
+      // Check if credential is revoked
+      const revoked = await isCredentialRevoked(citizenAddress);
       
-      if (result.isValid && result.credential) {
+      if (revoked) {
+        setVerificationResult('revoked');
+        setCredential(result.credential || null);
+        toast({
+          title: 'Credential Revoked',
+          description: 'This credential has been revoked and is no longer valid',
+          variant: 'destructive',
+        });
+      } else if (result.isValid && result.credential) {
         setVerificationResult('valid');
         setCredential(result.credential);
         
@@ -218,6 +229,8 @@ export function CredentialVerifier() {
                 ? 'bg-green-500/10 border-green-500/30' 
                 : verificationResult === 'expired'
                 ? 'bg-yellow-500/10 border-yellow-500/30'
+                : verificationResult === 'revoked'
+                ? 'bg-destructive/10 border-destructive/30'
                 : verificationResult === 'invalid'
                 ? 'bg-destructive/10 border-destructive/30'
                 : 'bg-yellow-500/10 border-yellow-500/30'
@@ -228,6 +241,11 @@ export function CredentialVerifier() {
                     <>
                       <CheckCircle className="w-6 h-6 text-green-400" />
                       <span className="font-bold text-lg text-green-400">Credential Valid</span>
+                    </>
+                  ) : verificationResult === 'revoked' ? (
+                    <>
+                      <Ban className="w-6 h-6 text-destructive" />
+                      <span className="font-bold text-lg text-destructive">Credential Revoked</span>
                     </>
                   ) : verificationResult === 'expired' ? (
                     <>
